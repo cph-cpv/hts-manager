@@ -34,9 +34,40 @@ demand.
 ## Configuration
 
 All configuration is via env vars — see [`.env.example`](./.env.example); there
-are no CLI options. The directory to scan is `HTSM_SCAN_PATH`. Required to boot
-are `HTSM_PIN` and `HTSM_SESSION_SECRET`; the `VT_UPLOAD_*` credentials are only
-needed once an upload actually runs.
+are no CLI options. Required to boot are `HTSM_PIN` and `HTSM_SESSION_SECRET`;
+the `VT_UPLOAD_*` credentials are only validated once an upload actually runs.
+
+### Access
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `HTSM_PIN` | Yes | — | Shared access PIN. Anyone who knows it gets a signed session cookie. Compared in constant time. |
+| `HTSM_SESSION_SECRET` | Yes | — | HMAC-SHA256 secret used to sign the session cookie. Use a long random string. |
+
+### Storage
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `HTSM_SCAN_PATH` | No | _(unset)_ | Directory of Illumina run folders to scan. If unset, the startup scan is skipped and the file list stays empty until set. |
+| `HTSM_DB_PATH` | No | `./hts-manager.db` | Path to the better-sqlite3 database file. |
+
+### Virtool upload target
+
+These are only read when an upload runs. `VT_UPLOAD_USER_HANDLE` and
+`VT_UPLOAD_API_KEY` must both be set or the upload throws.
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `VT_UPLOAD_URL` | No | `https://preview.virtool.ca/api/uploads` | Endpoint the uploader `POST`s each file to. |
+| `VT_UPLOAD_USER_HANDLE` | To upload | — | Virtool username, sent as HTTP Basic auth user. |
+| `VT_UPLOAD_API_KEY` | To upload | — | Virtool personal access token, sent as HTTP Basic auth password. |
+| `VT_UPLOAD_FILE_TYPE` | No | `reads` | Value of the `type` query param on the upload request. |
+
+### Runtime
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `NODE_ENV` | No | — | When `production`, the session cookie is set with the `Secure` flag. |
 
 ## How metadata is derived
 

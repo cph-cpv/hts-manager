@@ -1,4 +1,5 @@
-import { UploadIcon } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, ChevronUp, ChevronsUpDown, UploadIcon } from 'lucide-react'
 import { Button } from '~/components/ui/button'
 import {
   Table,
@@ -12,6 +13,62 @@ import { StatusBadge } from '~/components/StatusBadge'
 import { humanFileSize, formatDate } from '~/lib/format'
 import type { FileRow } from '~/db/schema'
 import type { ColumnVisibility } from '~/components/ColumnToggle'
+
+type FileSortKey =
+  | 'name'
+  | 'size'
+  | 'run_date'
+  | 'instrument'
+  | 'flowcell'
+  | 'lane'
+  | 'upload_status'
+
+type SortState = { key: FileSortKey; dir: 'asc' | 'desc' }
+
+function sortFiles(files: FileRow[], key: FileSortKey, dir: 'asc' | 'desc'): FileRow[] {
+  return [...files].sort((a, b) => {
+    const av = a[key] ?? null
+    const bv = b[key] ?? null
+    if (av === null && bv === null) return 0
+    if (av === null) return 1
+    if (bv === null) return -1
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0
+    return dir === 'asc' ? cmp : -cmp
+  })
+}
+
+function SortableHead({
+  label,
+  sortKey,
+  current,
+  onSort,
+  className,
+}: {
+  label: string
+  sortKey: FileSortKey
+  current: SortState
+  onSort: (key: FileSortKey) => void
+  className?: string
+}) {
+  const active = current.key === sortKey
+  const Icon = active
+    ? current.dir === 'asc'
+      ? ChevronUp
+      : ChevronDown
+    : ChevronsUpDown
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="flex items-center gap-1 hover:text-foreground transition-colors"
+      >
+        {label}
+        <Icon className="size-3.5 shrink-0" />
+      </button>
+    </TableHead>
+  )
+}
 
 /** The upload action shown per row, keyed off the row's lifecycle state. */
 function UploadAction({
@@ -56,6 +113,16 @@ export function FileTable({
   pendingId: number | null
   columnVisibility: ColumnVisibility
 }) {
+  const [sort, setSort] = useState<SortState>({ key: 'run_date', dir: 'desc' })
+
+  const onSort = (key: FileSortKey) => {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: 'asc' },
+    )
+  }
+
   if (files.length === 0) {
     return (
       <div className="rounded-md border p-8 text-center text-sm text-muted-foreground">
@@ -65,24 +132,31 @@ export function FileTable({
   }
 
   const { instrument, flowcell, lane } = columnVisibility
+  const sorted = sortFiles(files, sort.key, sort.dir)
 
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Size</TableHead>
-            <TableHead>Run date</TableHead>
-            {instrument && <TableHead>Instrument</TableHead>}
-            {flowcell && <TableHead>Flowcell</TableHead>}
-            {lane && <TableHead>Lane</TableHead>}
-            <TableHead>Status</TableHead>
+            <SortableHead label="Name" sortKey="name" current={sort} onSort={onSort} />
+            <SortableHead label="Size" sortKey="size" current={sort} onSort={onSort} />
+            <SortableHead label="Run date" sortKey="run_date" current={sort} onSort={onSort} />
+            {instrument && (
+              <SortableHead label="Instrument" sortKey="instrument" current={sort} onSort={onSort} />
+            )}
+            {flowcell && (
+              <SortableHead label="Flowcell" sortKey="flowcell" current={sort} onSort={onSort} />
+            )}
+            {lane && (
+              <SortableHead label="Lane" sortKey="lane" current={sort} onSort={onSort} />
+            )}
+            <SortableHead label="Status" sortKey="upload_status" current={sort} onSort={onSort} />
             <TableHead className="text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {files.map((file) => (
+          {sorted.map((file) => (
             <TableRow key={file.id}>
               <TableCell className="font-medium">{file.name}</TableCell>
               <TableCell className="text-muted-foreground">

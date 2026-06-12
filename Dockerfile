@@ -5,7 +5,7 @@ RUN corepack enable && corepack prepare pnpm@11.5.2 --activate
 FROM base AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Build the app

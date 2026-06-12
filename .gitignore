@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.output/
+.nitro/
+.tanstack/
+src/routeTree.gen.ts
+
+# local env + databases
+.env
+.env.local
+*.db
+*.db-shm
+*.db-wal
+
+# editor / OS
+.DS_Store
+*.log
+
+# scratch data
+illumina_tree.txt
+example/

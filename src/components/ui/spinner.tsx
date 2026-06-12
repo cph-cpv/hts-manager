@@ -1,0 +1,17 @@
+import { Loader2Icon, type LucideProps } from 'lucide-react'
+
+import { cn } from '~/lib/utils'
+
+/** A spinning loader icon. Wraps lucide's Loader2 with `animate-spin`. */
+function Spinner({ className, ...props }: LucideProps) {
+  return (
+    <Loader2Icon
+      role="status"
+      aria-label="Loading"
+      className={cn('size-4 animate-spin', className)}
+      {...props}
+    />
+  )
+}
+
+export { Spinner }

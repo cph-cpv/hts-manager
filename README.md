@@ -76,8 +76,9 @@ decompressed, so scanning is fast.
 
 - A run folder is a **direct child of the scan root** whose name matches the
   Illumina pattern (`230615_A00123_0456_BHGV7DSX3` → date `2023-06-15`,
-  instrument `A00123`, run `0456`, flowcell `BHGV7DSX3`; a stripped `230615`
-  yields only the date).
+  instrument `A00123`, run `0456`, flowcell `BHGV7DSX3`). The date must be
+  followed by a full instrument/run/flowcell tail; partial names like `230615`
+  or `230615_A00123` do not match.
 - Lane comes from the filename `_L00N_` token (null for merged outputs).
 - Top-level directories that don't match the run-folder pattern are **skipped
   wholesale**, as are files not under a recognized run folder — keep the tree

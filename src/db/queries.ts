@@ -5,7 +5,7 @@
  * cheap.
  */
 import { sep } from 'node:path'
-import { getDb, type FileRow, type RunRow } from './schema'
+import { getDb, type FileRow, type FileWithRun, type RunRow } from './schema'
 import type { DerivedRecord } from '../scan/parse'
 
 /** Current UTC timestamp as an ISO-8601 string (how all `*_at` columns store time). */
@@ -65,22 +65,15 @@ export function insertIfNew(file: DerivedRecord): boolean {
   const info = getDb()
     .prepare(
       `INSERT OR IGNORE INTO files
-         (run_id, path, name, size, run_date, run_folder, instrument, run_number,
-          flowcell, lane, first_seen_at, last_scanned_at)
+         (run_id, path, name, size, lane, first_seen_at, last_scanned_at)
        VALUES
-         (@run_id, @path, @name, @size, @run_date, @run_folder, @instrument, @run_number,
-          @flowcell, @lane, @first_seen_at, @last_scanned_at)`,
+         (@run_id, @path, @name, @size, @lane, @first_seen_at, @last_scanned_at)`,
     )
     .run({
       run_id: runId,
       path: file.path,
       name: file.name,
       size: file.size,
-      run_date: file.run_date,
-      run_folder: file.run_folder,
-      instrument: file.instrument,
-      run_number: file.run_number,
-      flowcell: file.flowcell,
       lane: file.lane,
       first_seen_at: now,
       last_scanned_at: now,
@@ -130,10 +123,10 @@ export function flagMissingExcept(root: string, seenPaths: string[]): number {
     db.prepare(
       `UPDATE runs
           SET last_scanned_at = ?
-        WHERE run_folder IN (
-          SELECT DISTINCT run_folder FROM files
+        WHERE id IN (
+          SELECT DISTINCT run_id FROM files
            WHERE path IN (SELECT path FROM _seen)
-             AND run_folder IS NOT NULL
+             AND run_id IS NOT NULL
         )`,
     ).run(now)
 
@@ -168,17 +161,19 @@ export interface SearchOptions {
  * `q` is matched literally (metacharacters escaped); an empty/absent `q` lists
  * everything.
  */
-export function searchFiles(options: SearchOptions = {}): FileRow[] {
+export function searchFiles(options: SearchOptions = {}): FileWithRun[] {
   const { q = '', limit = 100, offset = 0 } = options
   const pattern = `%${escapeLike(q)}%`
   return getDb()
     .prepare(
-      `SELECT * FROM files
-        WHERE name LIKE ? ESCAPE '\\' AND missing = 0
-        ORDER BY run_date DESC, name ASC, id ASC
+      `SELECT f.*, r.run_date, r.run_folder, r.instrument, r.run_number, r.flowcell
+         FROM files f
+         JOIN runs r ON r.id = f.run_id
+        WHERE f.name LIKE ? ESCAPE '\\' AND f.missing = 0
+        ORDER BY r.run_date DESC, f.name ASC, f.id ASC
         LIMIT ? OFFSET ?`,
     )
-    .all(pattern, limit, offset) as FileRow[]
+    .all(pattern, limit, offset) as FileWithRun[]
 }
 
 /** Count visible files matching the same filter as {@link searchFiles} (for pagination). */

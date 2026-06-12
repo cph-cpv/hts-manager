@@ -108,7 +108,7 @@ export function RunsTable({ runs }: { runs: RunSummary[] }) {
                 {run.instrument ?? '—'}
               </TableCell>
               <TableCell className="text-muted-foreground">
-                {run.flowcell ?? '—'}
+                {run.flowcell}
               </TableCell>
               <TableCell className="text-right text-muted-foreground">
                 {run.file_count}

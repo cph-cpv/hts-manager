@@ -11,10 +11,12 @@ import { basename } from 'node:path'
 export interface ParsedRunFolder {
   /** ISO date (YYYY-MM-DD) from the leading 6-digit YYMMDD. */
   run_date: string
-  /** From the tail after the date (full names only); null for date-only folders. */
-  instrument: string | null
-  run_number: string | null
-  flowcell: string | null
+  /** First `_`-separated token of the tail. */
+  instrument: string
+  /** Second tail token (e.g. `9`, `0103`). */
+  run_number: string
+  /** Remaining tail tokens joined (e.g. `AAG222KM5`). */
+  flowcell: string
 }
 
 /** A scanned FASTQ file ready to be inserted into the `files` table. */
@@ -28,17 +30,18 @@ export interface DerivedRecord extends ParsedRunFolder {
   lane: string | null
 }
 
-const RUN_FOLDER_RE = /^(\d{6})(?:_(.+))?$/
+const RUN_FOLDER_RE = /^(\d{6})_(.+)$/
 const LANE_RE = /_L(\d{3})_/
 const FASTQ_RE = /\.f(ast)?q\.gz$/i
 
 /**
  * Parse an Illumina run-folder segment name.
  *
- * A full name `230615_A00123_0456_BHGV7DSX3` yields the date plus instrument
- * (`A00123`), run number (`0456`), and flowcell (`BHGV7DSX3`). A stripped name
- * `230615` yields only the date. Returns `null` when the segment is not a run
- * folder (so non-conforming top-level dirs are skipped wholesale).
+ * A name like `230615_A00123_0456_BHGV7DSX3` yields the date plus instrument
+ * (`A00123`), run number (`0456`), and flowcell (`BHGV7DSX3`). The tail must have
+ * at least three `_`-separated parts (instrument, run number, flowcell); names
+ * that don't — a bare `230615`, or `230615_A00123` — return `null` and are
+ * skipped wholesale, so only fully-formed run folders are stored.
  *
  * The 6 leading digits are interpreted as `YYMMDD` and calendar-validated
  * (month 01-12, day 01-31) so stray 6-digit directories don't match. Century
@@ -58,15 +61,11 @@ export function parseRunFolder(segment: string): ParsedRunFolder | null {
   const year = yy <= 69 ? 2000 + yy : 1900 + yy
   const run_date = `${year}-${pad2(mm)}-${pad2(dd)}`
 
-  const tail = match[2]
-  if (!tail) {
-    return { run_date, instrument: null, run_number: null, flowcell: null }
-  }
-
-  // Best-effort split: instrument _ run_number _ flowcell. Tolerate extra
-  // trailing fields by folding them into the flowcell segment.
-  const [instrument = null, run_number = null, ...rest] = tail.split('_')
-  const flowcell = rest.length > 0 ? rest.join('_') : null
+  // Split: instrument _ run_number _ flowcell. All three are required; tolerate
+  // extra trailing fields by folding them into the flowcell segment.
+  const [instrument, run_number, ...rest] = match[2]!.split('_')
+  if (!instrument || !run_number || rest.length === 0) return null
+  const flowcell = rest.join('_')
 
   return { run_date, instrument, run_number, flowcell }
 }

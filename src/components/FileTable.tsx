@@ -11,7 +11,7 @@ import {
 } from '~/components/ui/table'
 import { StatusBadge } from '~/components/StatusBadge'
 import { humanFileSize, formatDate } from '~/lib/format'
-import type { FileRow } from '~/db/schema'
+import type { FileRow, FileWithRun } from '~/db/schema'
 import type { ColumnVisibility } from '~/components/ColumnToggle'
 
 type FileSortKey =
@@ -25,7 +25,7 @@ type FileSortKey =
 
 type SortState = { key: FileSortKey; dir: 'asc' | 'desc' }
 
-function sortFiles(files: FileRow[], key: FileSortKey, dir: 'asc' | 'desc'): FileRow[] {
+function sortFiles(files: FileWithRun[], key: FileSortKey, dir: 'asc' | 'desc'): FileWithRun[] {
   return [...files].sort((a, b) => {
     const av = a[key] ?? null
     const bv = b[key] ?? null
@@ -108,7 +108,7 @@ export function FileTable({
   pendingId,
   columnVisibility,
 }: {
-  files: FileRow[]
+  files: FileWithRun[]
   onUpload: (id: number) => void
   pendingId: number | null
   columnVisibility: ColumnVisibility
@@ -170,7 +170,7 @@ export function FileTable({
               )}
               {flowcell && (
                 <TableCell className="text-muted-foreground">
-                  {file.flowcell ?? '—'}
+                  {file.flowcell}
                 </TableCell>
               )}
               {lane && (

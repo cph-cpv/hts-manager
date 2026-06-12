@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { ensureWorkersStarted } from '../server/bootstrap'
 import { countFiles, listRuns as listRunsQuery, requestUpload as requestUploadRow, searchFiles } from '../db/queries'
-import type { FileRow } from '../db/schema'
+import type { FileWithRun } from '../db/schema'
 import type { RunSummary } from '../db/queries'
 
 const listInput = z
@@ -21,7 +21,7 @@ const listInput = z
 
 /** A page of files plus the total count matching the filter (for pagination). */
 export interface ListFilesResult {
-  files: FileRow[]
+  files: FileWithRun[]
   total: number
 }
 

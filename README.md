@@ -67,7 +67,7 @@ These are only read when an upload runs. `VT_UPLOAD_USER_HANDLE` and
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `NODE_ENV` | No | — | When `production`, the session cookie is set with the `Secure` flag. |
+| `HTSM_SECURE` | No | `true` | Controls the `Secure` flag on the session cookie. Set to `false` only when serving over plain HTTP (e.g. by IP on a trusted, cert-less network) — browsers silently drop `Secure` cookies set over non-HTTPS connections, which otherwise makes the PIN login appear to silently fail. |
 
 ## How metadata is derived
 

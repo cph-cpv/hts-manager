@@ -10,6 +10,7 @@ import {
 import { me } from '~/functions/auth.fn'
 import { listFiles, listRuns, requestUpload } from '~/functions/files.fn'
 import { Button } from '~/components/ui/button'
+import { Toggle } from '~/components/ui/toggle'
 import { SearchBar } from '~/components/SearchBar'
 import { FileTable } from '~/components/FileTable'
 import {
@@ -87,12 +88,11 @@ function Home() {
             <div className="flex items-center gap-2">
               <SearchBar onSearch={onSearch} />
               <ColumnToggle visible={colVis} onChange={setColVis} />
-              <Button
-                type="button"
-                variant={includeUndetermined ? 'secondary' : 'outline'}
+              <Toggle
+                variant="outline"
                 size="sm"
-                aria-pressed={includeUndetermined}
-                onClick={() => onToggleUndetermined(!includeUndetermined)}
+                pressed={includeUndetermined}
+                onPressedChange={onToggleUndetermined}
               >
                 {includeUndetermined ? (
                   <EyeIcon className="h-4 w-4" />
@@ -100,7 +100,7 @@ function Home() {
                   <EyeOffIcon className="h-4 w-4" />
                 )}
                 Undetermined
-              </Button>
+              </Toggle>
             </div>
             <p className="text-sm text-muted-foreground">
               {total === 0

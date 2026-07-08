@@ -350,11 +350,34 @@ export function getRunById(id: number): RunRow | undefined {
     .get(id) as RunRow | undefined
 }
 
-/** All files belonging to a run (by run_id). */
-export function getFilesForRun(runId: number): FileRow[] {
+/**
+ * All files belonging to a run (by run_id), each joined with its run's metadata
+ * so the result matches what {@link FileTable} consumes. Ordered by name.
+ */
+export function getFilesForRun(runId: number): FileWithRun[] {
   return getDb()
     .prepare(
-      `SELECT * FROM files WHERE run_id = ? ORDER BY name ASC`,
+      `SELECT f.*, r.run_date, r.run_folder, r.instrument, r.run_number, r.flowcell
+         FROM files f
+         JOIN runs r ON r.id = f.run_id
+        WHERE f.run_id = ?
+        ORDER BY f.name ASC`,
     )
-    .all(runId) as FileRow[]
+    .all(runId) as FileWithRun[]
+}
+
+/**
+ * Queue every not-yet-uploaded file in a run for upload (whole-run upload button):
+ * mark them requested + `queued` and clear any prior error. Already-uploaded rows
+ * are left alone. Returns the number of files newly queued.
+ */
+export function requestUploadForRun(runId: number): number {
+  const info = getDb()
+    .prepare(
+      `UPDATE files
+          SET upload_requested = 1, upload_status = 'queued', upload_error = NULL
+        WHERE run_id = ? AND uploaded = 0`,
+    )
+    .run(runId)
+  return info.changes
 }

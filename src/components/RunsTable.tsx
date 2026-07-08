@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
 import {
   Table,
@@ -102,7 +103,15 @@ export function RunsTable({ runs }: { runs: RunSummary[] }) {
         <TableBody>
           {sorted.map((run) => (
             <TableRow key={run.id}>
-              <TableCell className="font-medium">{run.run_folder}</TableCell>
+              <TableCell className="font-medium">
+                <Link
+                  to="/runs/$runId"
+                  params={{ runId: String(run.id) }}
+                  className="hover:underline"
+                >
+                  {run.run_folder}
+                </Link>
+              </TableCell>
               <TableCell>{formatDate(run.run_date)}</TableCell>
               <TableCell className="text-muted-foreground">
                 {run.instrument ?? '—'}

@@ -152,24 +152,34 @@ export function getKnownPaths(): Set<string> {
 export interface SearchOptions {
   /** Case-insensitive substring matched against `name`; empty matches all. */
   q?: string
+  /**
+   * Include Illumina `Undetermined_*` reads (unassigned by demultiplexing).
+   * Defaults to `false` — these are noise and are hidden unless opted in.
+   */
+  includeUndetermined?: boolean
   limit?: number
   offset?: number
+}
+
+/** WHERE fragment hiding `Undetermined_*` files unless `includeUndetermined` is set. */
+function undeterminedClause(includeUndetermined: boolean): string {
+  return includeUndetermined ? '' : " AND name NOT LIKE 'Undetermined\\_%' ESCAPE '\\'"
 }
 
 /**
  * Search visible (`missing = 0`) files by name substring, newest run first.
  * `q` is matched literally (metacharacters escaped); an empty/absent `q` lists
- * everything.
+ * everything. `Undetermined_*` reads are hidden unless `includeUndetermined`.
  */
 export function searchFiles(options: SearchOptions = {}): FileWithRun[] {
-  const { q = '', limit = 100, offset = 0 } = options
+  const { q = '', includeUndetermined = false, limit = 100, offset = 0 } = options
   const pattern = `%${escapeLike(q)}%`
   return getDb()
     .prepare(
       `SELECT f.*, r.run_date, r.run_folder, r.instrument, r.run_number, r.flowcell
          FROM files f
          JOIN runs r ON r.id = f.run_id
-        WHERE f.name LIKE ? ESCAPE '\\' AND f.missing = 0
+        WHERE f.name LIKE ? ESCAPE '\\' AND f.missing = 0${undeterminedClause(includeUndetermined)}
         ORDER BY r.run_date DESC, f.name ASC, f.id ASC
         LIMIT ? OFFSET ?`,
     )
@@ -177,13 +187,13 @@ export function searchFiles(options: SearchOptions = {}): FileWithRun[] {
 }
 
 /** Count visible files matching the same filter as {@link searchFiles} (for pagination). */
-export function countFiles(options: Pick<SearchOptions, 'q'> = {}): number {
-  const { q = '' } = options
+export function countFiles(options: Pick<SearchOptions, 'q' | 'includeUndetermined'> = {}): number {
+  const { q = '', includeUndetermined = false } = options
   const pattern = `%${escapeLike(q)}%`
   const row = getDb()
     .prepare(
       `SELECT COUNT(*) AS n FROM files
-        WHERE name LIKE ? ESCAPE '\\' AND missing = 0`,
+        WHERE name LIKE ? ESCAPE '\\' AND missing = 0${undeterminedClause(includeUndetermined)}`,
     )
     .get(pattern) as { n: number }
   return row.n

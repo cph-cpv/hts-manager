@@ -22,6 +22,7 @@ import type { RunSummary } from '../db/queries'
 const listInput = z
   .object({
     q: z.string().optional(),
+    includeUndetermined: z.boolean().optional(),
     limit: z.number().int().min(1).max(500).optional(),
     offset: z.number().int().min(0).optional(),
   })
@@ -41,7 +42,7 @@ export const listFiles = createServerFn({ method: 'GET' })
     const options = data ?? {}
     return {
       files: searchFiles(options),
-      total: countFiles({ q: options.q }),
+      total: countFiles({ q: options.q, includeUndetermined: options.includeUndetermined }),
     }
   })
 

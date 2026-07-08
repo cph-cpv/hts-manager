@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { EyeIcon, EyeOffIcon } from 'lucide-react'
 import { createFileRoute } from '@tanstack/react-router'
 import {
   keepPreviousData,
@@ -8,6 +9,7 @@ import {
 } from '@tanstack/react-query'
 import { listFiles, requestUpload } from '~/functions/files.fn'
 import { Button } from '~/components/ui/button'
+import { Toggle } from '~/components/ui/toggle'
 import { SearchBar } from '~/components/SearchBar'
 import { FileTable } from '~/components/FileTable'
 import {
@@ -26,6 +28,7 @@ function FilesView() {
   const queryClient = useQueryClient()
   const [q, setQ] = useState('')
   const [offset, setOffset] = useState(0)
+  const [includeUndetermined, setIncludeUndetermined] = useState(false)
   const [colVis, setColVis] = useState<ColumnVisibility>(DEFAULT_COLUMN_VISIBILITY)
 
   const onSearch = useCallback((next: string) => {
@@ -33,9 +36,15 @@ function FilesView() {
     setOffset(0)
   }, [])
 
+  const onToggleUndetermined = useCallback((next: boolean) => {
+    setIncludeUndetermined(next)
+    setOffset(0)
+  }, [])
+
   const filesQuery = useQuery({
-    queryKey: ['files', q, offset],
-    queryFn: () => listFiles({ data: { q, limit: PAGE_SIZE, offset } }),
+    queryKey: ['files', q, includeUndetermined, offset],
+    queryFn: () =>
+      listFiles({ data: { q, includeUndetermined, limit: PAGE_SIZE, offset } }),
     refetchInterval: 3000,
     placeholderData: keepPreviousData,
   })
@@ -56,6 +65,19 @@ function FilesView() {
         <div className="flex items-center gap-2">
           <SearchBar onSearch={onSearch} />
           <ColumnToggle visible={colVis} onChange={setColVis} />
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={includeUndetermined}
+            onPressedChange={onToggleUndetermined}
+          >
+            {includeUndetermined ? (
+              <EyeIcon className="h-4 w-4" />
+            ) : (
+              <EyeOffIcon className="h-4 w-4" />
+            )}
+            Undetermined
+          </Toggle>
         </div>
         <p className="text-sm text-muted-foreground">
           {total === 0

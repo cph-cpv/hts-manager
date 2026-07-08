@@ -1,14 +1,18 @@
 # hts-manager
 
-A short-lived internal tool to get Illumina sequencing reads into Virtool's
-preview instance. Point it at a directory of Illumina run folders; it indexes
-the `*.fastq.gz` / `*.fq.gz` files (name, size, and run metadata parsed from the
+An internal tool for managing Illumina sequencing run output and getting reads
+into Virtool. Point it at a directory of Illumina run folders; it indexes the
+`*.fastq.gz` / `*.fq.gz` files (name, size, and run metadata parsed from the
 run-folder name + filename), and presents a searchable list behind a shared PIN.
 Each row has a one-click **Upload** button; a background worker uploads queued
-files one at a time to `preview.virtool.ca`, survives restarts, and marks each
-file `uploaded` on success.
+files one at a time to Virtool, survives restarts, and marks each file
+`uploaded` on success.
 
-See [`plan.md`](./plan.md) for the full design and rationale.
+Originally scoped as a short-lived internal tool, hts-manager is now on a path
+to become a production service for the sequencing pipeline — see
+[Roadmap](#roadmap) for where it's headed.
+
+See [`plan.md`](./plan.md) for the original design and rationale.
 
 ## Stack
 
@@ -97,5 +101,26 @@ whole on restart.
 
 Feature-complete against [`plan.md`](./plan.md): DB layer, run-folder/filename
 parsing, in-process scanner + uploader workers, single-PIN auth, status/file
-server functions, and the file-list UI with top-bar indicators. Remaining is the
-end-to-end verification pass (see the Verification section in `plan.md`).
+server functions, and the file-list UI with top-bar indicators. This covers the
+original short-lived-tool scope; active development has moved on to the
+production-hardening work tracked in [Roadmap](#roadmap).
+
+## Roadmap
+
+Planned as hts-manager grows from a stopgap script into a production service:
+
+- **Active run visibility** — surface in-progress sequencing runs, not just
+  completed ones.
+- **Automatic handling of done runs** — sequencers write to a target
+  directory; hts-manager detects completed runs and copies them to long-term
+  storage automatically.
+- **Whole-run upload to Virtool** — upload a run's files as a unit, with the
+  ability to tag a run for auto-upload before it finishes sequencing.
+- **`Undetermined` file exclusion from upload** — excluded by default, with a
+  per-run opt-out.
+- **`Undetermined` file exclusion from search** — excluded by default, with a
+  search control to opt back in.
+- **File downloads** — retrieve files directly from hts-manager, not just
+  upload them.
+- **Samplesheet parsing** — read samplesheets from run folders when present,
+  to enrich run metadata.

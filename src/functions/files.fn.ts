@@ -7,8 +7,16 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
 import { ensureWorkersStarted } from '../server/bootstrap'
-import { countFiles, listRuns as listRunsQuery, requestUpload as requestUploadRow, searchFiles } from '../db/queries'
-import type { FileWithRun } from '../db/schema'
+import {
+  countFiles,
+  getFilesForRun,
+  getRunById,
+  listRuns as listRunsQuery,
+  requestUpload as requestUploadRow,
+  requestUploadForRun as requestUploadForRunRows,
+  searchFiles,
+} from '../db/queries'
+import type { FileWithRun, RunRow } from '../db/schema'
 import type { RunSummary } from '../db/queries'
 
 const listInput = z
@@ -42,6 +50,36 @@ export const listFiles = createServerFn({ method: 'GET' })
 export const listRuns = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .handler(async (): Promise<RunSummary[]> => listRunsQuery())
+
+const runInput = z.object({ runId: z.number().int().positive() })
+
+/** A single run plus its files, or `run: null` when the id is unknown. */
+export interface GetRunResult {
+  run: RunRow | null
+  files: FileWithRun[]
+}
+
+/** Fetch one run and its files for the run detail page. */
+export const getRun = createServerFn({ method: 'GET' })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => runInput.parse(data))
+  .handler(async ({ data }): Promise<GetRunResult> => {
+    const run = getRunById(data.runId)
+    if (!run) return { run: null, files: [] }
+    return { run, files: getFilesForRun(data.runId) }
+  })
+
+/**
+ * Queue every not-yet-uploaded file in a run (whole-run upload). Returns how many
+ * files were newly queued. Ensures the uploader loop is running so they drain.
+ */
+export const requestRunUpload = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .validator((data: unknown) => runInput.parse(data))
+  .handler(async ({ data }) => {
+    ensureWorkersStarted()
+    return { queued: requestUploadForRunRows(data.runId) }
+  })
 
 const requestUploadInput = z.object({ id: z.number().int().positive() })
 

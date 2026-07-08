@@ -53,7 +53,7 @@ export function issueSession(): void {
     sameSite: 'lax',
     path: '/',
     maxAge: MAX_AGE_SECONDS,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.HTSM_SECURE !== 'false',
   })
 }
 

@@ -118,9 +118,5 @@ Planned as hts-manager grows from a stopgap script into a production service:
   ability to tag a run for auto-upload before it finishes sequencing.
 - **`Undetermined` file exclusion from upload** — excluded by default, with a
   per-run opt-out.
-- **`Undetermined` file exclusion from search** — excluded by default, with a
-  search control to opt back in.
-- **File downloads** — retrieve files directly from hts-manager, not just
-  upload them.
 - **Samplesheet parsing** — read samplesheets from run folders when present,
   to enrich run metadata.

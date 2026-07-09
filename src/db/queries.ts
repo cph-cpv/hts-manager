@@ -199,6 +199,13 @@ export function countFiles(options: Pick<SearchOptions, 'q' | 'includeUndetermin
   return row.n
 }
 
+/** Fetch a single file by id, or undefined if not found. */
+export function getFileById(id: number): FileRow | undefined {
+  return getDb()
+    .prepare('SELECT * FROM files WHERE id = ?')
+    .get(id) as FileRow | undefined
+}
+
 /** Aggregate counts for the status bar. */
 export interface AggregateCounts {
   total: number

@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, ChevronsUpDown, UploadIcon } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  DownloadIcon,
+  UploadIcon,
+} from 'lucide-react'
 import { Button } from '~/components/ui/button'
 import {
   Table,
@@ -101,6 +107,25 @@ function UploadAction({
   )
 }
 
+/**
+ * Download link for a row. A plain anchor rather than a fetch: the session is a
+ * cookie, so the browser streams the file straight to disk without the app ever
+ * holding a multi-gigabyte body in memory.
+ */
+function DownloadAction({ file }: { file: FileRow }) {
+  // The route answers 410 for a missing file — don't offer a link that can't work.
+  if (file.missing) return null
+
+  return (
+    <Button asChild size="sm" variant="ghost" title={`Download ${file.name}`}>
+      <a href={`/api/files/${file.id}/download`} download={file.name}>
+        <DownloadIcon />
+        <span className="sr-only">Download</span>
+      </a>
+    </Button>
+  )
+}
+
 /** The searchable file table: one row per indexed FASTQ with its upload control. */
 export function FileTable({
   files,
@@ -182,11 +207,14 @@ export function FileTable({
                 <StatusBadge status={file.upload_status} />
               </TableCell>
               <TableCell className="text-right">
-                <UploadAction
-                  file={file}
-                  onUpload={onUpload}
-                  pending={pendingId === file.id}
-                />
+                <div className="flex items-center justify-end gap-1">
+                  <DownloadAction file={file} />
+                  <UploadAction
+                    file={file}
+                    onUpload={onUpload}
+                    pending={pendingId === file.id}
+                  />
+                </div>
               </TableCell>
             </TableRow>
           ))}

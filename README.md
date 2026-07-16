@@ -55,6 +55,23 @@ the `VT_UPLOAD_*` credentials are only validated once an upload actually runs.
 | `HTSM_SCAN_PATH` | No | _(unset)_ | Directory of Illumina run folders to scan. If unset, the startup scan is skipped and the file list stays empty until set. |
 | `HTSM_DB_PATH` | No | `./hts-manager.db` | Path to the better-sqlite3 database file. |
 
+### Transfer from sequencer output
+
+Transfer is disabled unless `HTSM_TRANSFER_ENABLED` is true. When enabled,
+`HTSM_TRANSFER_SOURCE_PATH` must be an absolute existing directory and
+`HTSM_SCAN_PATH` must be set to an existing destination directory. The source
+and destination directories must be distinct and must not be nested inside each
+other.
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `HTSM_TRANSFER_ENABLED` | No | `false` | Enables sequencer-output transfer configuration and path validation. |
+| `HTSM_TRANSFER_SOURCE_PATH` | If transfer enabled | — | Absolute source directory containing sequencer-side run folders. |
+| `HTSM_TRANSFER_QUIET_MINUTES` | No | `60` | Minutes a source run must remain quiet before readiness code can treat it as stable. |
+| `HTSM_TRANSFER_POLL_SECONDS` | No | `60` | Poll interval for future transfer workers. |
+| `HTSM_TRANSFER_REMOVE_SOURCE_ENABLED` | No | `false` | Enables future source-removal work after copied runs satisfy retention rules. |
+| `HTSM_TRANSFER_REMOVE_AFTER_DAYS` | No | `0` | Retention period for future source-removal work. |
+
 ### Virtool upload target
 
 These are only read when an upload runs. `VT_UPLOAD_USER_HANDLE` and

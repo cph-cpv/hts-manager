@@ -6,6 +6,7 @@
  * thrown to the caller. See plan.md (step 4).
  */
 import { runScan, type ScanResult } from '../scan/scan'
+import { getConfig } from './config'
 
 /** Snapshot of the scanner, surfaced through `getStatus`. */
 export interface ScanState {
@@ -54,7 +55,7 @@ export function getScanState(): ScanState {
 export function requestScan(): RequestScanResult {
   if (state.scanning) return { started: false, reason: 'already-running' }
 
-  const root = process.env.HTSM_SCAN_PATH
+  const root = getConfig().scanPath
   if (!root) return { started: false, reason: 'no-scan-path' }
 
   state = {

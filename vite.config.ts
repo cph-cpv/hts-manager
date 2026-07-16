@@ -18,7 +18,9 @@ export default defineConfig({
     // Nitro builds the production server to `.output/server/index.mjs` and
     // traces native deps (better-sqlite3) into `.output`. Without it, Start
     // emits a bare `{ fetch }` handler to `dist/` that can't listen on a port.
-    nitro(),
+    nitro({
+      plugins: ['./src/server/database-plugin.ts'],
+    }),
     // react's vite plugin must come after start's vite plugin
     viteReact(),
   ],

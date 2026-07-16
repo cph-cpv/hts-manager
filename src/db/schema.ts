@@ -1,9 +1,12 @@
 /**
  * SQLite access via better-sqlite3 (synchronous). A single module-level
- * instance is shared by the server workers and the CLI — both import `getDb()`.
+ * instance is initialized by the server entry point and shared by all workers.
  */
 import Database from 'better-sqlite3'
 import type { Database as DB } from 'better-sqlite3'
+import { getConfig } from '../server/config'
+import { applyMigrations } from './migrations'
+import { TRANSFER_SCHEMA } from './transfer-schema'
 
 /** Upload lifecycle for a file row. */
 export type UploadStatus =
@@ -58,12 +61,49 @@ export interface FileWithRun extends FileRow {
   flowcell: string
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS schema_migrations (
-  version    INTEGER PRIMARY KEY,
-  applied_at TEXT NOT NULL
-);
+export type TransferReadinessStatus = 'waiting' | 'ready' | 'blocked'
 
+/**
+ * Effective source status exposed by the transfer status view. Execution
+ * states are derived from jobs instead of being duplicated on the source row.
+ */
+export type TransferSourceStatus =
+  | 'waiting'
+  | 'ready'
+  | 'blocked'
+  | 'copying'
+  | 'copied'
+  | 'removing'
+  | 'removed'
+  | 'error'
+
+export type TransferJobKind = 'discover' | 'copy' | 'remove'
+
+export type TransferJobState = 'waiting' | 'running' | 'complete' | 'error'
+
+export interface TransferSourceRow {
+  id: number
+  folder_name: string
+  source_path: string
+  readiness_status: TransferReadinessStatus
+  status: TransferSourceStatus
+  first_seen_at: string
+  last_error: string | null
+  block_reason: string | null
+}
+
+export interface TransferJobRow {
+  id: number
+  source_id: number | null
+  kind: TransferJobKind
+  state: TransferJobState
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  error_message: string | null
+}
+
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS runs (
   id              INTEGER PRIMARY KEY,
   run_folder      TEXT UNIQUE NOT NULL,
@@ -98,47 +138,32 @@ CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);
 CREATE INDEX IF NOT EXISTS idx_files_run_id ON files(run_id);
 CREATE INDEX IF NOT EXISTS idx_files_upload_requested ON files(upload_requested);
 CREATE INDEX IF NOT EXISTS idx_files_uploaded ON files(uploaded);
+
+${TRANSFER_SCHEMA}
 `
 
-/**
- * Versioned migrations applied once each. Each migration is idempotent so it's
- * safe to re-run if the version record was lost, but the `schema_migrations`
- * table prevents redundant work on normal startup.
- */
-const MIGRATIONS: Array<{ version: number; up: (db: DB) => void }> = []
-
 let db: DB | undefined
+let initialized = false
 
-/** Open (once) and return the shared database, applying schema + migrations. */
-export function getDb(): DB {
-  if (db) return db
+/** Open the database and apply all pending migrations once during startup. */
+export function initializeDatabase(): void {
+  if (initialized) return
 
-  const path = process.env.HTSM_DB_PATH ?? './hts-manager.db'
+  const path = getConfig().dbPath
   const instance = new Database(path)
   instance.pragma('journal_mode = WAL')
   instance.pragma('foreign_keys = ON')
+  applyMigrations(instance)
   instance.exec(SCHEMA)
 
-  const appliedVersions = new Set(
-    (
-      instance
-        .prepare('SELECT version FROM schema_migrations')
-        .all() as Array<{ version: number }>
-    ).map((r) => r.version),
-  )
-
-  const stamp = instance.prepare(
-    'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',
-  )
-
-  for (const migration of MIGRATIONS) {
-    if (appliedVersions.has(migration.version)) continue
-    instance.transaction(() => {
-      migration.up(instance)
-      stamp.run(migration.version, new Date().toISOString())
-    })()
-  }
-
   db = instance
+  initialized = true
+}
+
+/** Return the database initialized by the server startup hook. */
+export function getDb(): DB {
+  if (!db || !initialized) {
+    throw new Error('database accessed before startup initialization')
+  }
   return db
 }

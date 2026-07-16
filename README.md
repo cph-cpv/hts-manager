@@ -35,6 +35,21 @@ On boot the app scans `HTSM_SCAN_PATH` once, then keeps the file list and the tw
 top-bar indicators (scanning / upload activity) live; **Scan now** re-scans on
 demand.
 
+### Disposable Docker test environment
+
+The test Compose configuration mounts local fake sequencer output from
+`test/input` and keeps both the destination files and SQLite database in the
+same container-local tmpfs:
+
+```bash
+docker compose -f compose.test.yaml up --build
+```
+
+Open <http://localhost:3000> and log in with the test PIN `test`. The `test/`
+directory is ignored by Git, so local fixture data is never committed. The
+database and transferred output are both discarded when the test container is
+stopped.
+
 ## Configuration
 
 All configuration is via env vars — see [`.env.example`](./.env.example); there

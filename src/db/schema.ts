@@ -143,27 +143,27 @@ ${TRANSFER_SCHEMA}
 `
 
 let db: DB | undefined
-let initialized = false
 
-/** Open the database and apply all pending migrations once during startup. */
-export function initializeDatabase(): void {
-  if (initialized) return
-
-  const path = getConfig().dbPath
-  const instance = new Database(path)
+function openDatabase(): DB {
+  const instance = new Database(getConfig().dbPath)
   instance.pragma('journal_mode = WAL')
   instance.pragma('foreign_keys = ON')
-  applyMigrations(instance)
-  instance.exec(SCHEMA)
-
-  db = instance
-  initialized = true
+  return instance
 }
 
-/** Return the database initialized by the server startup hook. */
-export function getDb(): DB {
-  if (!db || !initialized) {
-    throw new Error('database accessed before startup initialization')
+/** Apply pending migrations before Nitro begins accepting requests. */
+export function migrateDatabase(): void {
+  const instance = openDatabase()
+  try {
+    applyMigrations(instance)
+    instance.exec(SCHEMA)
+  } finally {
+    instance.close()
   }
+}
+
+/** Open once and return the long-lived application database connection. */
+export function getDb(): DB {
+  db ??= openDatabase()
   return db
 }

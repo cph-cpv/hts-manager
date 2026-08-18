@@ -16,7 +16,7 @@ import {
   requestUploadForRun as requestUploadForRunRows,
   searchFiles,
 } from '../db/queries'
-import type { FileWithRun, RunRow } from '../db/schema'
+import type { FileWithRun, RunWithTransferActivity } from '../db/schema'
 import type { RunSummary } from '../db/queries'
 
 const listInput = z
@@ -55,7 +55,7 @@ const runInput = z.object({ runId: z.number().int().positive() })
 
 /** A single run plus its files, or `run: null` when the id is unknown. */
 export interface GetRunResult {
-  run: RunRow | null
+  run: RunWithTransferActivity | null
   files: FileWithRun[]
 }
 

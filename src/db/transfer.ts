@@ -1,498 +1,262 @@
-/**
- * Typed query helpers for sequencer-output transfer state. This intentionally
- * stays separate from uploadable destination-run queries: transfer sources are
- * sequencer-side folders, not rows in the existing `runs` table.
- */
+/** Typed query helpers for run discovery and source transfer jobs. */
+import { parseRunFolder } from '../scan/parse'
 import {
   getDb,
+  type RunRow,
+  type RunTransferStatus,
+  type RunWithTransferActivity,
+  type TransferActivity,
   type TransferJobKind,
-  type TransferJobRow,
-  type TransferSourceRow,
 } from './schema'
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
+import { enqueueJob, type JobRow } from './jobs'
+import { nowIso } from './utils'
 
 function requireMessage(value: string, name: string): void {
   if (!value.trim()) throw new Error(`${name} must not be empty`)
 }
 
-function getTransferSource(id: number): TransferSourceRow | undefined {
-  return getDb()
-    .prepare('SELECT * FROM transfer_source_status WHERE id = ?')
-    .get(id) as TransferSourceRow | undefined
+/** Allowed durable status transitions for transfer-managed runs. */
+export const RUN_TRANSFER_STATUS_TRANSITIONS = {
+  manual: [],
+  detected: ['ready'],
+  ready: ['transferred'],
+  transferred: ['removed'],
+  removed: [],
+} as const satisfies Record<RunTransferStatus, readonly RunTransferStatus[]>
+
+type ManagedTransferJobKind = Exclude<TransferJobKind, 'discover'>
+
+interface TransferJobRule {
+  requiredRunStatus: RunTransferStatus
+  completedRunStatus: RunTransferStatus
+  activity: Exclude<TransferActivity, null>
 }
 
-function getTransferJob(id: number): TransferJobRow {
-  return getDb()
-    .prepare('SELECT * FROM transfer_jobs WHERE id = ?')
-    .get(id) as TransferJobRow
+/** How each run-bound job relates to the durable run lifecycle. */
+const TRANSFER_JOB_RULES = {
+  copy: {
+    requiredRunStatus: 'ready',
+    completedRunStatus: 'transferred',
+    activity: 'copying',
+  },
+  remove: {
+    requiredRunStatus: 'transferred',
+    completedRunStatus: 'removed',
+    activity: 'removing',
+  },
+} as const satisfies Record<ManagedTransferJobKind, TransferJobRule>
+
+const TRANSFER_ACTIVITY_SQL = `
+  CASE
+    WHEN EXISTS (
+      SELECT 1 FROM jobs
+       WHERE target_type = 'run'
+         AND target_id = run.id
+         AND kind = 'remove'
+         AND state = 'running'
+    ) THEN '${TRANSFER_JOB_RULES.remove.activity}'
+    WHEN EXISTS (
+      SELECT 1 FROM jobs
+       WHERE target_type = 'run'
+         AND target_id = run.id
+         AND kind = 'copy'
+         AND state = 'running'
+    ) THEN '${TRANSFER_JOB_RULES.copy.activity}'
+    ELSE NULL
+  END AS transfer_activity
+`
+
+/**
+ * Atomically advance a run to an allowed durable transfer status.
+ * Initial statuses (`manual` and `detected`) are assigned when runs are created.
+ */
+export function transitionRunTransferStatus(
+  id: number,
+  nextStatus: RunTransferStatus,
+): void {
+  const db = getDb()
+  const current = db
+    .prepare('SELECT transfer_status FROM runs WHERE id = ?')
+    .get(id) as { transfer_status: RunTransferStatus } | undefined
+
+  if (!current) throw new Error(`run ${id} not found`)
+
+  const allowedStatuses: readonly RunTransferStatus[] =
+    RUN_TRANSFER_STATUS_TRANSITIONS[current.transfer_status]
+  if (!allowedStatuses.includes(nextStatus)) {
+    throw new Error(
+      `cannot transition run ${id} from ${current.transfer_status} to ${nextStatus}`,
+    )
+  }
+
+  const result = db
+    .prepare(
+      `UPDATE runs
+          SET transfer_status = ?
+        WHERE id = ? AND transfer_status = ?`,
+    )
+    .run(nextStatus, id, current.transfer_status)
+
+  if (result.changes === 0) {
+    throw new Error(`run ${id} changed while transitioning to ${nextStatus}`)
+  }
 }
 
-function hasCompletedTransferJob(
-  sourceId: number,
-  kind: Exclude<TransferJobKind, 'discover'>,
-): boolean {
-  return Boolean(
-    getDb()
-      .prepare(
-        `SELECT 1 FROM transfer_jobs
-          WHERE source_id = ? AND kind = ? AND state = 'complete'
-          LIMIT 1`,
-      )
-      .get(sourceId, kind),
+/** Mark a detected run as stable and eligible for a copy job. */
+export function markRunReady(id: number): void {
+  transitionRunTransferStatus(id, 'ready')
+}
+
+/** Mark a ready run as successfully transferred. */
+export function markRunTransferred(id: number): void {
+  transitionRunTransferStatus(
+    id,
+    TRANSFER_JOB_RULES.copy.completedRunStatus,
   )
 }
 
-export interface UpsertTransferSourceInput {
-  folderName: string
+/** Mark a transferred run's source as successfully removed. */
+export function markRunRemoved(id: number): void {
+  transitionRunTransferStatus(
+    id,
+    TRANSFER_JOB_RULES.remove.completedRunStatus,
+  )
+}
+
+export interface UpsertDetectedRunInput {
+  runFolder: string
   sourcePath: string
 }
 
 /**
- * Insert or refresh a transfer source by its absolute source path.
- * The folder name is persisted as the eventual destination folder name.
+ * Insert a newly detected source run, or return the matching known run.
+ * Manual runs are deliberately never enrolled into the managed lifecycle.
  */
-export function upsertTransferSource(
-  input: UpsertTransferSourceInput,
-): TransferSourceRow {
-  const db = getDb()
-  const now = nowIso()
+export function upsertDetectedRun(
+  input: UpsertDetectedRunInput,
+): RunRow {
+  requireMessage(input.sourcePath, 'source path')
+  const metadata = parseRunFolder(input.runFolder)
+  if (!metadata) {
+    throw new Error(`run folder is not parseable: ${input.runFolder}`)
+  }
 
-  db.prepare(
-    `INSERT INTO transfer_sources
-       (folder_name, source_path, readiness_status, first_seen_at)
-     VALUES
-       (@folder_name, @source_path, 'waiting', @first_seen_at)
-     ON CONFLICT(source_path) DO UPDATE SET
-       folder_name = excluded.folder_name`,
-  ).run({
-    folder_name: input.folderName,
-    source_path: input.sourcePath,
-    first_seen_at: now,
-  })
-
-  const row = db
-    .prepare('SELECT * FROM transfer_source_status WHERE source_path = ?')
-    .get(input.sourcePath) as TransferSourceRow | undefined
-  if (!row) throw new Error('failed to upsert transfer source')
-  return row
-}
-
-/** Mark a source as waiting for readiness checks. */
-export function markTransferSourceWaiting(id: number): boolean {
-  const info = getDb()
-    .prepare(
-      `UPDATE transfer_sources
-          SET readiness_status = 'waiting',
-              block_reason = NULL
-        WHERE id = ?
-          AND NOT EXISTS (
-            SELECT 1 FROM transfer_jobs
-             WHERE source_id = transfer_sources.id
-               AND kind = 'copy'
-               AND state = 'complete'
-          )`,
-    )
-    .run(id)
-  return info.changes > 0
-}
-
-/** Mark a source as ready to copy. */
-export function markTransferSourceReady(id: number): boolean {
-  const info = getDb()
-    .prepare(
-      `UPDATE transfer_sources
-          SET readiness_status = 'ready',
-              block_reason = NULL
-        WHERE id = ?
-          AND NOT EXISTS (
-            SELECT 1 FROM transfer_jobs
-             WHERE source_id = transfer_sources.id
-               AND kind = 'copy'
-               AND state = 'complete'
-          )`,
-    )
-    .run(id)
-  return info.changes > 0
-}
-
-/** Mark a source blocked by a readiness or non-recoverable copy problem. */
-export function markTransferSourceBlocked(
-  id: number,
-  reason: string,
-): boolean {
-  requireMessage(reason, 'block reason')
-
-  const info = getDb()
-    .prepare(
-      `UPDATE transfer_sources
-          SET readiness_status = 'blocked',
-              block_reason = ?
-        WHERE id = ?
-          AND NOT EXISTS (
-            SELECT 1 FROM transfer_jobs
-             WHERE source_id = transfer_sources.id
-               AND kind = 'copy'
-               AND state = 'complete'
-          )`,
-    )
-    .run(reason, id)
-  return info.changes > 0
-}
-
-/**
- * A copy claim contains the source snapshot and the running job that records
- * the attempt.
- */
-export interface ClaimedTransferSource {
-  source: TransferSourceRow
-  job: TransferJobRow
-}
-
-/**
- * Atomically claim the oldest ready source and create its running copy job.
- * Returns undefined while another copy is running or no run is ready.
- */
-export function claimReadyTransferSource(): ClaimedTransferSource | undefined {
   const db = getDb()
   return db.transaction(() => {
-    const runningCopy = db
-      .prepare(
-        `SELECT 1 FROM transfer_jobs
-          WHERE kind = 'copy' AND state = 'running'
-          LIMIT 1`,
-      )
-      .get()
-    if (runningCopy) return undefined
+    const existing = db
+      .prepare('SELECT * FROM runs WHERE run_folder = ?')
+      .get(input.runFolder) as RunRow | undefined
 
-    const row = db
-      .prepare(
-        `SELECT * FROM transfer_source_status AS transfer_source
-          WHERE readiness_status = 'ready'
-            AND NOT EXISTS (
-              SELECT 1 FROM transfer_jobs
-               WHERE source_id = transfer_source.id
-                 AND (
-                   (kind = 'copy' AND state IN ('waiting', 'running', 'complete'))
-                   OR (kind = 'remove' AND state = 'complete')
-                 )
-            )
-          ORDER BY first_seen_at ASC, id ASC
-          LIMIT 1`,
+    if (existing) {
+      if (existing.transfer_status === 'manual') return existing
+      if (existing.source_path !== input.sourcePath) {
+        throw new Error(
+          `run folder ${input.runFolder} is already associated with source path ` +
+            existing.source_path,
+        )
+      }
+      return existing
+    }
+
+    const pathOwner = db
+      .prepare('SELECT run_folder FROM runs WHERE source_path = ?')
+      .get(input.sourcePath) as { run_folder: string } | undefined
+    if (pathOwner) {
+      throw new Error(
+        `source path ${input.sourcePath} is already associated with run folder ` +
+          pathOwner.run_folder,
       )
-      .get() as TransferSourceRow | undefined
-    if (!row) return undefined
+    }
 
     const now = nowIso()
-    const info = db
+    return db
       .prepare(
-        `INSERT INTO transfer_jobs
-           (source_id, kind, state, created_at, started_at)
-         VALUES (?, 'copy', 'running', ?, ?)`,
+        `INSERT INTO runs
+           (run_folder, source_path, transfer_status, run_date, instrument,
+            run_number, flowcell, first_seen_at, last_scanned_at)
+         VALUES
+           (@run_folder, @source_path, 'detected', @run_date, @instrument,
+            @run_number, @flowcell, @first_seen_at, NULL)
+         RETURNING *`,
       )
-      .run(row.id, now, now)
-
-    return {
-      source: getTransferSource(row.id)!,
-      job: getTransferJob(Number(info.lastInsertRowid)),
-    }
+      .get({
+        run_folder: input.runFolder,
+        source_path: input.sourcePath,
+        ...metadata,
+        first_seen_at: now,
+      }) as RunRow
   })()
 }
 
-/** Complete the source's running copy job. */
-export function markTransferSourceCopied(id: number): boolean {
-  const job = getDb()
-    .prepare(
-      `SELECT * FROM transfer_jobs
-        WHERE source_id = ? AND kind = 'copy' AND state = 'running'
-        ORDER BY id DESC
-        LIMIT 1`,
+function requireRunWithSourcePath(runId: number): RunRow {
+  const run = getDb().prepare('SELECT * FROM runs WHERE id = ?').get(runId) as
+    | RunRow
+    | undefined
+  if (!run) throw new Error(`run ${runId} not found`)
+  if (!run.source_path) throw new Error(`run ${runId} requires a source path`)
+  return run
+}
+
+/** Queue a scan of the configured source directories. */
+export function queueDiscoveryJob(): JobRow {
+  return enqueueJob({ kind: 'discover' })
+}
+
+/** Queue destination copying for a ready run. */
+export function queueRunCopyJob(runId: number): JobRow {
+  const run = requireRunWithSourcePath(runId)
+  if (run.transfer_status !== TRANSFER_JOB_RULES.copy.requiredRunStatus) {
+    throw new Error(
+      `copy jobs require a run with transfer status ${TRANSFER_JOB_RULES.copy.requiredRunStatus}`,
     )
-    .get(id) as TransferJobRow | undefined
-  return job ? markTransferJobComplete(job.id) : false
-}
-
-/** Fail a source's currently running copy or removal job. */
-export function markTransferSourceError(id: number, message: string): boolean {
-  requireMessage(message, 'error message')
-
-  const job = getDb()
-    .prepare(
-      `SELECT * FROM transfer_jobs
-        WHERE source_id = ?
-          AND kind IN ('copy', 'remove')
-          AND state = 'running'
-        ORDER BY id DESC
-        LIMIT 1`,
-    )
-    .get(id) as TransferJobRow | undefined
-  return job ? markTransferJobError(job.id, message) : false
-}
-
-/** Claim this source's queued removal job. */
-export function markTransferSourceRemoving(id: number): boolean {
-  const db = getDb()
-  return db.transaction(() => {
-    const job = db
-      .prepare(
-        `SELECT id FROM transfer_jobs
-          WHERE source_id = ? AND kind = 'remove' AND state = 'waiting'
-          ORDER BY created_at ASC, id ASC
-          LIMIT 1`,
-      )
-      .get(id) as { id: number } | undefined
-    if (!job) return false
-
-    return (
-      db
-        .prepare(
-          `UPDATE transfer_jobs
-              SET state = 'running', started_at = ?
-            WHERE id = ? AND state = 'waiting'`,
-        )
-        .run(nowIso(), job.id).changes > 0
-    )
-  })()
-}
-
-/** Complete the source's running removal job. */
-export function markTransferSourceRemoved(id: number): boolean {
-  const job = getDb()
-    .prepare(
-      `SELECT * FROM transfer_jobs
-        WHERE source_id = ? AND kind = 'remove' AND state = 'running'
-        ORDER BY id DESC
-        LIMIT 1`,
-    )
-    .get(id) as TransferJobRow | undefined
-  return job ? markTransferJobComplete(job.id) : false
-}
-
-export interface QueueTransferJobInput {
-  kind: TransferJobKind
-  sourceId?: number
-}
-
-/**
- * Queue discover/copy/remove work. SQLite constraints enforce one active
- * discovery job, one active copy/removal per source, and one running copy.
- */
-export function queueTransferJob(input: QueueTransferJobInput): TransferJobRow {
-  const db = getDb()
-  const sourceId = input.kind === 'discover' ? null : input.sourceId
-  if (input.kind !== 'discover' && sourceId === undefined) {
-    throw new Error(`${input.kind} transfer jobs require a source id`)
   }
 
-  if (input.kind === 'copy') {
-    const source = getTransferSource(sourceId!)
-    if (!source) {
-      throw new Error(`transfer source ${sourceId} not found`)
-    }
-    if (
-      source.readiness_status !== 'ready' ||
-      hasCompletedTransferJob(sourceId!, 'copy')
-    ) {
-      throw new Error('copy jobs require a ready, uncopied source')
-    }
-  }
+  return enqueueJob({ kind: 'copy', target: { type: 'run', id: runId } })
+}
 
-  const info = db
-    .prepare(
-      `INSERT INTO transfer_jobs
-         (source_id, kind, state, created_at)
-       VALUES (?, ?, 'waiting', ?)`,
+/** Queue source removal for a transferred run. */
+export function queueRunRemovalJob(runId: number): JobRow {
+  const run = requireRunWithSourcePath(runId)
+  if (run.transfer_status !== TRANSFER_JOB_RULES.remove.requiredRunStatus) {
+    throw new Error(
+      `remove jobs require a run with transfer status ${TRANSFER_JOB_RULES.remove.requiredRunStatus}`,
     )
-    .run(sourceId, input.kind, nowIso())
-
-  return getTransferJob(Number(info.lastInsertRowid))
-}
-
-/** Queue source removal only when the source has a completed copy. */
-export function queueTransferRemovalJob(sourceId: number): TransferJobRow {
-  const source = getTransferSource(sourceId)
-  if (!source) throw new Error(`transfer source ${sourceId} not found`)
-  if (!hasCompletedTransferJob(sourceId, 'copy')) {
-    throw new Error('transfer removal requires completed copy')
-  }
-  if (hasCompletedTransferJob(sourceId, 'remove')) {
-    throw new Error('transfer source has already been removed')
   }
 
-  return queueTransferJob({ kind: 'remove', sourceId })
+  return enqueueJob({ kind: 'remove', target: { type: 'run', id: runId } })
 }
 
-/** Claim the oldest waiting transfer job of a kind and mark it running. */
-export function claimNextTransferJob(
-  kind: TransferJobKind,
-): TransferJobRow | undefined {
-  const db = getDb()
-  return db.transaction(() => {
-    if (kind === 'copy') {
-      const runningCopy = db
-        .prepare(
-          `SELECT * FROM transfer_jobs
-            WHERE kind = 'copy' AND state = 'running'
-            ORDER BY started_at ASC, id ASC
-            LIMIT 1`,
-        )
-        .get() as TransferJobRow | undefined
-      if (runningCopy) return undefined
-    }
-
-    const row = (
-      kind === 'copy'
-        ? db
-            .prepare(
-              `SELECT job.* FROM transfer_jobs AS job
-                JOIN transfer_sources AS transfer_source
-                  ON transfer_source.id = job.source_id
-               WHERE job.kind = 'copy'
-                 AND job.state = 'waiting'
-                 AND transfer_source.readiness_status = 'ready'
-                 AND NOT EXISTS (
-                   SELECT 1 FROM transfer_jobs AS completed_job
-                    WHERE completed_job.source_id = transfer_source.id
-                      AND completed_job.kind = 'copy'
-                      AND completed_job.state = 'complete'
-                 )
-               ORDER BY job.created_at ASC, job.id ASC
-               LIMIT 1`,
-            )
-            .get()
-        : db
-            .prepare(
-              `SELECT * FROM transfer_jobs
-                WHERE kind = ? AND state = 'waiting'
-                ORDER BY created_at ASC, id ASC
-                LIMIT 1`,
-            )
-            .get(kind)
-    ) as TransferJobRow | undefined
-    if (!row) return undefined
-
-    db.prepare(
-      `UPDATE transfer_jobs
-          SET state = 'running',
-              started_at = ?,
-              error_message = NULL
-        WHERE id = ? AND state = 'waiting'`,
-    ).run(nowIso(), row.id)
-
-    return getTransferJob(row.id)
-  })()
+export interface TransferRunSummary extends RunWithTransferActivity {
+  last_error: string | null
 }
 
-/**
- * Mark a running job complete. Source copy/removal status is derived from the
- * completed job rather than persisted separately.
- */
-export function markTransferJobComplete(id: number): boolean {
-  const db = getDb()
-  return db.transaction(() => {
-    const job = db
-      .prepare('SELECT * FROM transfer_jobs WHERE id = ?')
-      .get(id) as TransferJobRow | undefined
-    if (!job || job.state !== 'running') return false
+const TRANSFER_RUN_SUMMARY_SQL = `
+  SELECT run.*,
+         ${TRANSFER_ACTIVITY_SQL},
+         (
+           SELECT error_message FROM jobs
+            WHERE target_type = 'run'
+              AND target_id = run.id
+              AND state = 'error'
+            ORDER BY id DESC
+            LIMIT 1
+         ) AS last_error
+    FROM runs AS run
+`
 
-    const now = nowIso()
-    const info = db
-      .prepare(
-        `UPDATE transfer_jobs
-            SET state = 'complete',
-                finished_at = ?,
-                error_message = NULL
-          WHERE id = ? AND state = 'running'`,
-      )
-      .run(now, id)
-    if (info.changes === 0) return false
-
-    return true
-  })()
-}
-
-/** Mark a transfer job failed. */
-export function markTransferJobError(id: number, message: string): boolean {
-  requireMessage(message, 'error message')
-
-  const info = getDb()
-    .prepare(
-      `UPDATE transfer_jobs
-          SET state = 'error',
-              finished_at = ?,
-              error_message = ?
-        WHERE id = ? AND state = 'running'`,
-    )
-    .run(nowIso(), message, id)
-  return info.changes > 0
-}
-
-export interface TransferCounts {
-  total: number
-  waiting: number
-  ready: number
-  blocked: number
-  copying: number
-  copied: number
-  removing: number
-  removed: number
-  errors: number
-  activeJobs: number
-  jobErrors: number
-}
-
-/** Aggregate source and job counts for transfer status views. */
-export function getTransferCounts(): TransferCounts {
+/** Transfer-managed runs with at least one failed job. */
+export function listProblemTransferRuns(limit = 20): TransferRunSummary[] {
   return getDb()
     .prepare(
-      `SELECT
-         COUNT(*) AS total,
-         COALESCE(SUM(status = 'waiting'), 0) AS waiting,
-         COALESCE(SUM(status = 'ready'), 0) AS ready,
-         COALESCE(SUM(status = 'blocked'), 0) AS blocked,
-         COALESCE(SUM(status = 'copying'), 0) AS copying,
-         COALESCE(SUM(status = 'copied'), 0) AS copied,
-         COALESCE(SUM(status = 'removing'), 0) AS removing,
-         COALESCE(SUM(status = 'removed'), 0) AS removed,
-         COALESCE(SUM(status = 'error'), 0) AS errors,
-         (
-           SELECT COUNT(*) FROM transfer_jobs
-            WHERE state IN ('waiting', 'running')
-         ) AS activeJobs,
-         (
-           SELECT COUNT(*) FROM transfer_jobs
-            WHERE state = 'error'
-         ) AS jobErrors
-       FROM transfer_source_status`,
-    )
-    .get() as TransferCounts
-}
-
-/** Recent sources for UI/status surfaces. */
-export function listRecentTransferSources(
-  limit = 20,
-): TransferSourceRow[] {
-  return getDb()
-    .prepare(
-      `SELECT * FROM transfer_source_status
+      `${TRANSFER_RUN_SUMMARY_SQL}
+        WHERE EXISTS (
+          SELECT 1 FROM jobs
+           WHERE target_type = 'run'
+             AND target_id = run.id
+             AND state = 'error'
+        )
         ORDER BY first_seen_at DESC, id DESC
         LIMIT ?`,
     )
-    .all(limit) as TransferSourceRow[]
-}
-
-/** Problem sources for UI/status surfaces. */
-export function listProblemTransferSources(
-  limit = 20,
-): TransferSourceRow[] {
-  return getDb()
-    .prepare(
-      `SELECT * FROM transfer_source_status
-        WHERE status IN ('blocked', 'error')
-        ORDER BY first_seen_at DESC, id DESC
-        LIMIT ?`,
-    )
-    .all(limit) as TransferSourceRow[]
+    .all(limit) as TransferRunSummary[]
 }

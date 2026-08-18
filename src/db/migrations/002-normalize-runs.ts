@@ -1,19 +1,17 @@
 import type { Migration } from './types'
 
-/**
- * Historical migration retained because version 1 is already recorded in
- * existing databases. Never reuse its version for a different migration.
- */
+/** Normalize run metadata from legacy file rows into the runs table. */
 export const normalizeRuns: Migration = {
-  version: 1,
+  version: 2,
   name: 'normalize runs',
   up(db) {
     const columns = (
       db.prepare('PRAGMA table_info(files)').all() as Array<{ name: string }>
     ).map((column) => column.name)
 
-    // A fresh database receives the current schema after migrations run.
-    if (columns.length === 0 || !columns.includes('run_folder')) return
+    // Fresh databases initialized by migration 1 and already-normalized
+    // production databases have no file-level run_folder column.
+    if (!columns.includes('run_folder')) return
 
     if (!columns.includes('run_id')) {
       db.exec('ALTER TABLE files ADD COLUMN run_id INTEGER REFERENCES runs(id)')

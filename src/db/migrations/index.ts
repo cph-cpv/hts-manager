@@ -1,9 +1,17 @@
 import type { Database } from 'better-sqlite3'
-import { normalizeRuns } from './001-normalize-runs'
-import { addTransferSchema } from './002-add-transfer-schema'
+import { initializeSchema } from './001-initialize-schema'
+import { normalizeRuns } from './002-normalize-runs'
+import { addRunTransferSchema } from './003-add-run-transfer-schema'
+import { addJobsSchema } from './004-add-jobs-schema'
 import type { Migration } from './types'
+import { nowIso } from '../utils'
 
-const migrations: Migration[] = [normalizeRuns, addTransferSchema]
+const migrations: Migration[] = [
+  initializeSchema,
+  normalizeRuns,
+  addRunTransferSchema,
+  addJobsSchema,
+]
 
 function validateRegistry(): void {
   migrations.forEach((migration, index) => {
@@ -83,7 +91,7 @@ export function applyMigrations(db: Database): void {
     try {
       db.transaction(() => {
         migration.up(db)
-        stamp.run(migration.version, new Date().toISOString())
+        stamp.run(migration.version, nowIso())
       })()
     } finally {
       if (migration.disableForeignKeys && foreignKeysWereEnabled) {

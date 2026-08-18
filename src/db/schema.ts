@@ -6,7 +6,6 @@ import Database from 'better-sqlite3'
 import type { Database as DB } from 'better-sqlite3'
 import { getConfig } from '../server/config'
 import { applyMigrations } from './migrations'
-import { TRANSFER_SCHEMA } from './transfer-schema'
 
 /** Upload lifecycle for a file row. */
 export type UploadStatus =
@@ -20,12 +19,14 @@ export type UploadStatus =
 export interface RunRow {
   id: number
   run_folder: string
+  source_path: string | null
+  transfer_status: RunTransferStatus
   run_date: string
   instrument: string
   run_number: string
   flowcell: string
   first_seen_at: string
-  last_scanned_at: string
+  last_scanned_at: string | null
 }
 
 /**
@@ -61,40 +62,27 @@ export interface FileWithRun extends FileRow {
   flowcell: string
 }
 
-export type TransferReadinessStatus = 'waiting' | 'ready' | 'blocked'
-
-/**
- * Effective source status exposed by the transfer status view. Execution
- * states are derived from jobs instead of being duplicated on the source row.
- */
-export type TransferSourceStatus =
-  | 'waiting'
+/** Durable transfer milestone for a run; temporary activity lives on jobs. */
+export type RunTransferStatus =
+  | 'manual'
+  | 'detected'
   | 'ready'
-  | 'blocked'
-  | 'copying'
-  | 'copied'
-  | 'removing'
+  | 'transferred'
   | 'removed'
-  | 'error'
+
+export type TransferActivity = 'copying' | 'removing' | null
 
 export type TransferJobKind = 'discover' | 'copy' | 'remove'
 
 export type TransferJobState = 'waiting' | 'running' | 'complete' | 'error'
 
-export interface TransferSourceRow {
-  id: number
-  folder_name: string
-  source_path: string
-  readiness_status: TransferReadinessStatus
-  status: TransferSourceStatus
-  first_seen_at: string
-  last_error: string | null
-  block_reason: string | null
+export interface RunWithTransferActivity extends RunRow {
+  transfer_activity: TransferActivity
 }
 
 export interface TransferJobRow {
   id: number
-  source_id: number | null
+  run_id: number | null
   kind: TransferJobKind
   state: TransferJobState
   created_at: string
@@ -102,45 +90,6 @@ export interface TransferJobRow {
   finished_at: string | null
   error_message: string | null
 }
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS runs (
-  id              INTEGER PRIMARY KEY,
-  run_folder      TEXT UNIQUE NOT NULL,
-  run_date        TEXT NOT NULL,
-  instrument      TEXT NOT NULL,
-  run_number      TEXT NOT NULL,
-  flowcell        TEXT NOT NULL,
-  first_seen_at   TEXT NOT NULL,
-  last_scanned_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_runs_run_date ON runs(run_date);
-
-CREATE TABLE IF NOT EXISTS files (
-  id               INTEGER PRIMARY KEY,
-  run_id           INTEGER REFERENCES runs(id),
-  path             TEXT UNIQUE NOT NULL,
-  name             TEXT NOT NULL,
-  size             INTEGER NOT NULL,
-  lane             TEXT,
-  missing          INTEGER NOT NULL DEFAULT 0,
-  upload_requested INTEGER NOT NULL DEFAULT 0,
-  uploaded         INTEGER NOT NULL DEFAULT 0,
-  upload_status    TEXT NOT NULL DEFAULT 'idle',
-  upload_error     TEXT,
-  uploaded_at      TEXT,
-  first_seen_at    TEXT NOT NULL,
-  last_scanned_at  TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);
-CREATE INDEX IF NOT EXISTS idx_files_run_id ON files(run_id);
-CREATE INDEX IF NOT EXISTS idx_files_upload_requested ON files(upload_requested);
-CREATE INDEX IF NOT EXISTS idx_files_uploaded ON files(uploaded);
-
-${TRANSFER_SCHEMA}
-`
 
 let db: DB | undefined
 
@@ -156,7 +105,6 @@ export function migrateDatabase(): void {
   const instance = openDatabase()
   try {
     applyMigrations(instance)
-    instance.exec(SCHEMA)
   } finally {
     instance.close()
   }

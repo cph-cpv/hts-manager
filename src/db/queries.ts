@@ -5,13 +5,14 @@
  * cheap.
  */
 import { sep } from 'node:path'
-import { getDb, type FileRow, type FileWithRun, type RunRow } from './schema'
+import {
+  getDb,
+  type FileRow,
+  type FileWithRun,
+  type RunWithTransferActivity,
+} from './schema'
 import type { DerivedRecord } from '../scan/parse'
-
-/** Current UTC timestamp as an ISO-8601 string (how all `*_at` columns store time). */
-function nowIso(): string {
-  return new Date().toISOString()
-}
+import { nowIso } from './utils'
 
 /**
  * Escape SQLite `LIKE` metacharacters (`%`, `_`, and the escape char itself) so
@@ -336,7 +337,7 @@ export function markError(id: number, message: string): void {
 // ---------------------------------------------------------------------------
 
 /** All runs ordered newest-first, with a count of their associated files. */
-export interface RunSummary extends RunRow {
+export interface RunSummary extends RunWithTransferActivity {
   file_count: number
 }
 
@@ -344,7 +345,25 @@ export interface RunSummary extends RunRow {
 export function listRuns(): RunSummary[] {
   return getDb()
     .prepare(
-      `SELECT r.*, COUNT(f.id) AS file_count
+      `SELECT r.*,
+              COUNT(f.id) AS file_count,
+              CASE
+                  WHEN EXISTS (
+                    SELECT 1 FROM jobs
+                     WHERE target_type = 'run'
+                       AND target_id = r.id
+                       AND kind = 'remove'
+                       AND state = 'running'
+                  ) THEN 'removing'
+                  WHEN EXISTS (
+                    SELECT 1 FROM jobs
+                     WHERE target_type = 'run'
+                       AND target_id = r.id
+                       AND kind = 'copy'
+                       AND state = 'running'
+                  ) THEN 'copying'
+                  ELSE NULL
+                END AS transfer_activity
          FROM runs r
          LEFT JOIN files f ON f.run_id = r.id
         GROUP BY r.id
@@ -354,10 +373,31 @@ export function listRuns(): RunSummary[] {
 }
 
 /** Fetch a single run by id, or undefined if not found. */
-export function getRunById(id: number): RunRow | undefined {
+export function getRunById(id: number): RunWithTransferActivity | undefined {
   return getDb()
-    .prepare('SELECT * FROM runs WHERE id = ?')
-    .get(id) as RunRow | undefined
+    .prepare(
+      `SELECT run.*,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1 FROM jobs
+                   WHERE target_type = 'run'
+                     AND target_id = run.id
+                     AND kind = 'remove'
+                     AND state = 'running'
+                ) THEN 'removing'
+                WHEN EXISTS (
+                  SELECT 1 FROM jobs
+                   WHERE target_type = 'run'
+                     AND target_id = run.id
+                     AND kind = 'copy'
+                     AND state = 'running'
+                ) THEN 'copying'
+                ELSE NULL
+              END AS transfer_activity
+         FROM runs AS run
+        WHERE id = ?`,
+    )
+    .get(id) as RunWithTransferActivity | undefined
 }
 
 /**

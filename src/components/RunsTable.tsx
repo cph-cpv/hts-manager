@@ -11,7 +11,7 @@ import {
 } from '~/components/ui/table'
 import { RunTransferStatusBadge } from '~/components/RunTransferStatus'
 import { formatDate } from '~/lib/format'
-import type { RunSummary } from '~/db/queries'
+import type { RunSummary } from '~/db/runs'
 
 type RunSortKey =
   | 'run_folder'

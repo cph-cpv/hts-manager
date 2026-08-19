@@ -6,19 +6,9 @@
  */
 import { sep } from 'node:path'
 import { getDb } from './db'
-import type { FileRow, FileWithRun } from './files'
-import type { RunWithTransferActivity } from './runs'
+import type { FileRow } from './files'
 import type { DerivedRecord } from '../scan/parse'
 import { nowIso } from './utils'
-
-/**
- * Escape SQLite `LIKE` metacharacters (`%`, `_`, and the escape char itself) so
- * user search input and filesystem prefixes are matched literally. Pair with an
- * `ESCAPE '\'` clause.
- */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`)
-}
 
 /**
  * Insert or look up the run record for a derived file, returning its id.
@@ -146,81 +136,6 @@ export function getKnownPaths(): Set<string> {
   return new Set(rows.map((row) => row.path))
 }
 
-/** Filter + paginate options for {@link searchFiles}/{@link countFiles}. */
-export interface SearchOptions {
-  /** Case-insensitive substring matched against `name`; empty matches all. */
-  q?: string
-  /**
-   * Include Illumina `Undetermined_*` reads (unassigned by demultiplexing).
-   * Defaults to `false` — these are noise and are hidden unless opted in.
-   */
-  includeUndetermined?: boolean
-  limit?: number
-  offset?: number
-}
-
-/** WHERE fragment hiding `Undetermined_*` files unless `includeUndetermined` is set. */
-function undeterminedClause(includeUndetermined: boolean): string {
-  return includeUndetermined ? '' : " AND name NOT LIKE 'Undetermined\\_%' ESCAPE '\\'"
-}
-
-/**
- * Search visible (`missing = 0`) files by name substring, newest run first.
- * `q` is matched literally (metacharacters escaped); an empty/absent `q` lists
- * everything. `Undetermined_*` reads are hidden unless `includeUndetermined`.
- */
-export function searchFiles(options: SearchOptions = {}): FileWithRun[] {
-  const { q = '', includeUndetermined = false, limit = 100, offset = 0 } = options
-  const pattern = `%${escapeLike(q)}%`
-  return getDb()
-    .prepare(
-      `SELECT f.*, r.run_date, r.run_folder, r.instrument, r.run_number, r.flowcell
-         FROM files f
-         JOIN runs r ON r.id = f.run_id
-        WHERE f.name LIKE ? ESCAPE '\\' AND f.missing = 0${undeterminedClause(includeUndetermined)}
-        ORDER BY r.run_date DESC, f.name ASC, f.id ASC
-        LIMIT ? OFFSET ?`,
-    )
-    .all(pattern, limit, offset) as FileWithRun[]
-}
-
-/** Count visible files matching the same filter as {@link searchFiles} (for pagination). */
-export function countFiles(options: Pick<SearchOptions, 'q' | 'includeUndetermined'> = {}): number {
-  const { q = '', includeUndetermined = false } = options
-  const pattern = `%${escapeLike(q)}%`
-  const row = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS n FROM files
-        WHERE name LIKE ? ESCAPE '\\' AND missing = 0${undeterminedClause(includeUndetermined)}`,
-    )
-    .get(pattern) as { n: number }
-  return row.n
-}
-
-/** Aggregate counts for the status bar. */
-export interface AggregateCounts {
-  total: number
-  uploaded: number
-  queued: number
-  missing: number
-  errors: number
-}
-
-/** One-pass aggregate counts across all rows, for the status snapshot. */
-export function getAggregateCounts(): AggregateCounts {
-  return getDb()
-    .prepare(
-      `SELECT
-         COUNT(*) AS total,
-         COALESCE(SUM(uploaded = 1), 0) AS uploaded,
-         COALESCE(SUM(upload_requested = 1 AND uploaded = 0), 0) AS queued,
-         COALESCE(SUM(missing = 1), 0) AS missing,
-         COALESCE(SUM(upload_status = 'error'), 0) AS errors
-       FROM files`,
-    )
-    .get() as AggregateCounts
-}
-
 /** Live queue depth for the upload indicator. */
 export interface UploadCounts {
   /** Files requested and waiting, not yet started and not errored. */
@@ -327,90 +242,6 @@ export function markError(id: number, message: string): void {
         WHERE id = ?`,
     )
     .run(message, id)
-}
-
-// ---------------------------------------------------------------------------
-// Run queries
-// ---------------------------------------------------------------------------
-
-/** All runs ordered newest-first, with a count of their associated files. */
-export interface RunSummary extends RunWithTransferActivity {
-  file_count: number
-}
-
-/** List all runs, newest run date first. */
-export function listRuns(): RunSummary[] {
-  return getDb()
-    .prepare(
-      `SELECT r.*,
-              COUNT(f.id) AS file_count,
-              CASE
-                  WHEN EXISTS (
-                    SELECT 1 FROM jobs
-                     WHERE target_type = 'run'
-                       AND target_id = r.id
-                       AND kind = 'remove'
-                       AND state = 'running'
-                  ) THEN 'removing'
-                  WHEN EXISTS (
-                    SELECT 1 FROM jobs
-                     WHERE target_type = 'run'
-                       AND target_id = r.id
-                       AND kind = 'copy'
-                       AND state = 'running'
-                  ) THEN 'copying'
-                  ELSE NULL
-                END AS transfer_activity
-         FROM runs r
-         LEFT JOIN files f ON f.run_id = r.id
-        GROUP BY r.id
-        ORDER BY r.run_date DESC, r.run_folder ASC`,
-    )
-    .all() as RunSummary[]
-}
-
-/** Fetch a single run by id, or undefined if not found. */
-export function getRunById(id: number): RunWithTransferActivity | undefined {
-  return getDb()
-    .prepare(
-      `SELECT run.*,
-              CASE
-                WHEN EXISTS (
-                  SELECT 1 FROM jobs
-                   WHERE target_type = 'run'
-                     AND target_id = run.id
-                     AND kind = 'remove'
-                     AND state = 'running'
-                ) THEN 'removing'
-                WHEN EXISTS (
-                  SELECT 1 FROM jobs
-                   WHERE target_type = 'run'
-                     AND target_id = run.id
-                     AND kind = 'copy'
-                     AND state = 'running'
-                ) THEN 'copying'
-                ELSE NULL
-              END AS transfer_activity
-         FROM runs AS run
-        WHERE id = ?`,
-    )
-    .get(id) as RunWithTransferActivity | undefined
-}
-
-/**
- * All files belonging to a run (by run_id), each joined with its run's metadata
- * so the result matches what {@link FileTable} consumes. Ordered by name.
- */
-export function getFilesForRun(runId: number): FileWithRun[] {
-  return getDb()
-    .prepare(
-      `SELECT f.*, r.run_date, r.run_folder, r.instrument, r.run_number, r.flowcell
-         FROM files f
-         JOIN runs r ON r.id = f.run_id
-        WHERE f.run_id = ?
-        ORDER BY f.name ASC`,
-    )
-    .all(runId) as FileWithRun[]
 }
 
 /**

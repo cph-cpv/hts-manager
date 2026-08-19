@@ -53,7 +53,7 @@ const environmentSchema = z.object({
   VT_UPLOAD_API_KEY: optionalString,
 })
 
-export interface Config {
+export type Config = {
   auth: {
     pin: string | undefined
     sessionSecret: string | undefined

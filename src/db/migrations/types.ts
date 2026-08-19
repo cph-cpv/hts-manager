@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3'
 
-export interface Migration {
+export type Migration = {
   version: number
   name: string
   disableForeignKeys?: boolean

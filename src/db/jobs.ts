@@ -4,7 +4,7 @@ import { nowIso } from './utils'
 
 export type JobState = 'waiting' | 'running' | 'complete' | 'error'
 
-export interface JobRow {
+export type JobRow = {
   id: number
   kind: string
   target_type: string | null
@@ -17,12 +17,12 @@ export interface JobRow {
   error_message: string | null
 }
 
-export interface JobTarget {
+export type JobTarget = {
   type: string
   id: number
 }
 
-export interface EnqueueJobInput {
+export type EnqueueJobInput = {
   kind: string
   target?: JobTarget
   payload?: unknown

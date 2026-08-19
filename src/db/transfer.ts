@@ -25,7 +25,7 @@ export const RUN_TRANSFER_STATUS_TRANSITIONS = {
 
 type RunTransferOperation = 'copy' | 'remove'
 
-interface RunTransferOperationRule {
+type RunTransferOperationRule = {
   requiredRunStatus: RunTransferStatus
   completedRunStatus: RunTransferStatus
   activity: Exclude<TransferActivity, null>
@@ -122,7 +122,7 @@ export function markRunRemoved(id: number): void {
   )
 }
 
-export interface UpsertDetectedRunInput {
+export type UpsertDetectedRunInput = {
   runFolder: string
   sourcePath: string
 }
@@ -231,7 +231,7 @@ export function queueRunRemovalJob(runId: number): JobRow {
   return enqueueJob({ kind: 'remove', target: { type: 'run', id: runId } })
 }
 
-export interface TransferRunSummary extends RunWithTransferActivity {
+export type TransferRunSummary = RunWithTransferActivity & {
   last_error: string | null
 }
 

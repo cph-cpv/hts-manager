@@ -4,7 +4,7 @@ import type { FileRow } from './files'
 import { nowIso } from './utils'
 
 /** Live queue depth for the upload indicator. */
-export interface UploadCounts {
+export type UploadCounts = {
   /** Files requested and waiting, not yet started and not errored. */
   queued: number
   /** Files whose last upload attempt failed (retryable). */

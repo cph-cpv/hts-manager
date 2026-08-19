@@ -11,7 +11,7 @@ export type RunTransferStatus =
   | 'removed'
 
 /** Row shape of the `runs` table. */
-export interface RunRow {
+export type RunRow = {
   id: number
   run_folder: string
   source_path: string | null
@@ -26,12 +26,12 @@ export interface RunRow {
 
 export type TransferActivity = 'copying' | 'removing' | null
 
-export interface RunWithTransferActivity extends RunRow {
+export type RunWithTransferActivity = RunRow & {
   transfer_activity: TransferActivity
 }
 
 /** A run with the number of associated files. */
-export interface RunSummary extends RunWithTransferActivity {
+export type RunSummary = RunWithTransferActivity & {
   file_count: number
 }
 

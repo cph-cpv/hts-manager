@@ -2,7 +2,7 @@ import { realpathSync, statSync } from 'node:fs'
 import { isAbsolute, relative } from 'node:path'
 import { getConfig, readConfig } from './config'
 
-export interface TransferConfig {
+export type TransferConfig = {
   enabled: boolean
   sourcePath: string | null
   destinationPath: string | null

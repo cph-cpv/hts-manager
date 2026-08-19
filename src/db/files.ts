@@ -16,7 +16,7 @@ export type UploadStatus =
  * Row shape of the `files` table. Run-level metadata (date, folder, instrument,
  * …) lives only on `runs` now — join via `run_id` to get it (see {@link FileWithRun}).
  */
-export interface FileRow {
+export type FileRow = {
   id: number
   run_id: number | null
   path: string
@@ -37,7 +37,7 @@ export interface FileRow {
  * A file row joined with its run's metadata — what the file-list UI consumes.
  * Returned by the display queries (e.g. `searchFiles`) that `JOIN runs`.
  */
-export interface FileWithRun extends FileRow {
+export type FileWithRun = FileRow & {
   run_date: string
   run_folder: string
   instrument: string
@@ -46,7 +46,7 @@ export interface FileWithRun extends FileRow {
 }
 
 /** Filter + paginate options for {@link searchFiles}/{@link countFiles}. */
-export interface SearchOptions {
+export type SearchOptions = {
   /** Case-insensitive substring matched against `name`; empty matches all. */
   q?: string
   /**
@@ -59,7 +59,7 @@ export interface SearchOptions {
 }
 
 /** Aggregate counts for the status bar. */
-export interface AggregateCounts {
+export type AggregateCounts = {
   total: number
   uploaded: number
   queued: number

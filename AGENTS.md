@@ -23,6 +23,13 @@ pnpm typecheck    # tsc --noEmit
 
 There is no lint or test script configured currently — rely on `pnpm typecheck`.
 
+## TypeScript
+
+- Prefer `type` aliases over `interface` for object shapes, using intersections
+  when extending another type.
+- Use `interface` only when declaration merging or module augmentation requires
+  it.
+
 ## Layout
 
 - `src/routes/` — TanStack Router routes/pages.

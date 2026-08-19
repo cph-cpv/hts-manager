@@ -2,7 +2,7 @@ import type { Migration } from './types'
 
 /** Add generic persisted background job storage. */
 export const addJobsSchema: Migration = {
-  version: 4,
+  version: 3,
   name: 'add jobs schema',
   up(db) {
     db.exec(`

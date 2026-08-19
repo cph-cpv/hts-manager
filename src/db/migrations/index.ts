@@ -1,14 +1,12 @@
 import type { Database } from 'better-sqlite3'
 import { initializeSchema } from './001-initialize-schema'
-import { normalizeRuns } from './002-normalize-runs'
-import { addRunTransferSchema } from './003-add-run-transfer-schema'
-import { addJobsSchema } from './004-add-jobs-schema'
+import { addRunTransferSchema } from './002-add-run-transfer-schema'
+import { addJobsSchema } from './003-add-jobs-schema'
 import type { Migration } from './types'
 import { nowIso } from '../utils'
 
 const migrations: Migration[] = [
   initializeSchema,
-  normalizeRuns,
   addRunTransferSchema,
   addJobsSchema,
 ]

@@ -91,7 +91,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
       db
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all(),
-      [{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }],
+      [{ version: 1 }, { version: 2 }, { version: 3 }],
     )
     assert.deepEqual(db.pragma('foreign_key_check'), [])
 

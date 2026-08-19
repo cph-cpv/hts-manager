@@ -2,7 +2,7 @@ import type { Migration } from './types'
 
 /** Add the run-level transfer lifecycle. */
 export const addRunTransferSchema: Migration = {
-  version: 3,
+  version: 2,
   name: 'add run transfer schema',
   disableForeignKeys: true,
   up(db) {

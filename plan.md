@@ -118,7 +118,7 @@ worker, auth, background uploader + worker bootstrap, status function). Next:
 `better-sqlite3 zod form-data undici commander`, dev `@types/better-sqlite3`.
 Add bin entry in `package.json` (`"hts-manager": "dist/cli.js"`) and scripts: `dev`, `build`, `start`, `scan`.
 
-### 2. DB layer (`src/db/schema.ts`, `queries.ts`) ✅ done
+### 2. DB layer (`src/db/db.ts`, `files.ts`, `runs.ts`, `queries.ts`) ✅ done
 - `getDb()` (not `openDb()`) opens `HTSM_DB_PATH`, sets `PRAGMA journal_mode = WAL` (+ `foreign_keys = ON`), creates the table + indexes if absent. Single shared module-level instance (server + CLI both import it). `FileRow`/`UploadStatus` types live alongside the schema.
 - Query helpers in `queries.ts` (better-sqlite3 caches prepared statements, so they prepare inline):
   - `insertIfNew(file)` — `INSERT OR IGNORE`, stamps `first_seen_at`/`last_scanned_at`; returns whether a row was added.

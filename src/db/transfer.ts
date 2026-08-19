@@ -1,13 +1,12 @@
-/** Typed query helpers for run discovery and source transfer jobs. */
+/** Typed query helpers for run discovery and transfer operations. */
 import { parseRunFolder } from '../scan/parse'
+import { getDb } from './db'
 import {
-  getDb,
   type RunRow,
   type RunTransferStatus,
   type RunWithTransferActivity,
   type TransferActivity,
-  type TransferJobKind,
-} from './schema'
+} from './runs'
 import { enqueueJob, type JobRow } from './jobs'
 import { nowIso } from './utils'
 
@@ -24,16 +23,16 @@ export const RUN_TRANSFER_STATUS_TRANSITIONS = {
   removed: [],
 } as const satisfies Record<RunTransferStatus, readonly RunTransferStatus[]>
 
-type ManagedTransferJobKind = Exclude<TransferJobKind, 'discover'>
+type RunTransferOperation = 'copy' | 'remove'
 
-interface TransferJobRule {
+interface RunTransferOperationRule {
   requiredRunStatus: RunTransferStatus
   completedRunStatus: RunTransferStatus
   activity: Exclude<TransferActivity, null>
 }
 
-/** How each run-bound job relates to the durable run lifecycle. */
-const TRANSFER_JOB_RULES = {
+/** How each run transfer operation relates to the durable run lifecycle. */
+const RUN_TRANSFER_OPERATION_RULES = {
   copy: {
     requiredRunStatus: 'ready',
     completedRunStatus: 'transferred',
@@ -44,7 +43,7 @@ const TRANSFER_JOB_RULES = {
     completedRunStatus: 'removed',
     activity: 'removing',
   },
-} as const satisfies Record<ManagedTransferJobKind, TransferJobRule>
+} as const satisfies Record<RunTransferOperation, RunTransferOperationRule>
 
 const TRANSFER_ACTIVITY_SQL = `
   CASE
@@ -54,14 +53,14 @@ const TRANSFER_ACTIVITY_SQL = `
          AND target_id = run.id
          AND kind = 'remove'
          AND state = 'running'
-    ) THEN '${TRANSFER_JOB_RULES.remove.activity}'
+    ) THEN '${RUN_TRANSFER_OPERATION_RULES.remove.activity}'
     WHEN EXISTS (
       SELECT 1 FROM jobs
        WHERE target_type = 'run'
          AND target_id = run.id
          AND kind = 'copy'
          AND state = 'running'
-    ) THEN '${TRANSFER_JOB_RULES.copy.activity}'
+    ) THEN '${RUN_TRANSFER_OPERATION_RULES.copy.activity}'
     ELSE NULL
   END AS transfer_activity
 `
@@ -111,7 +110,7 @@ export function markRunReady(id: number): void {
 export function markRunTransferred(id: number): void {
   transitionRunTransferStatus(
     id,
-    TRANSFER_JOB_RULES.copy.completedRunStatus,
+    RUN_TRANSFER_OPERATION_RULES.copy.completedRunStatus,
   )
 }
 
@@ -119,7 +118,7 @@ export function markRunTransferred(id: number): void {
 export function markRunRemoved(id: number): void {
   transitionRunTransferStatus(
     id,
-    TRANSFER_JOB_RULES.remove.completedRunStatus,
+    RUN_TRANSFER_OPERATION_RULES.remove.completedRunStatus,
   )
 }
 
@@ -205,9 +204,12 @@ export function queueDiscoveryJob(): JobRow {
 /** Queue destination copying for a ready run. */
 export function queueRunCopyJob(runId: number): JobRow {
   const run = requireRunWithSourcePath(runId)
-  if (run.transfer_status !== TRANSFER_JOB_RULES.copy.requiredRunStatus) {
+  if (
+    run.transfer_status !==
+    RUN_TRANSFER_OPERATION_RULES.copy.requiredRunStatus
+  ) {
     throw new Error(
-      `copy jobs require a run with transfer status ${TRANSFER_JOB_RULES.copy.requiredRunStatus}`,
+      `copy jobs require a run with transfer status ${RUN_TRANSFER_OPERATION_RULES.copy.requiredRunStatus}`,
     )
   }
 
@@ -217,9 +219,12 @@ export function queueRunCopyJob(runId: number): JobRow {
 /** Queue source removal for a transferred run. */
 export function queueRunRemovalJob(runId: number): JobRow {
   const run = requireRunWithSourcePath(runId)
-  if (run.transfer_status !== TRANSFER_JOB_RULES.remove.requiredRunStatus) {
+  if (
+    run.transfer_status !==
+    RUN_TRANSFER_OPERATION_RULES.remove.requiredRunStatus
+  ) {
     throw new Error(
-      `remove jobs require a run with transfer status ${TRANSFER_JOB_RULES.remove.requiredRunStatus}`,
+      `remove jobs require a run with transfer status ${RUN_TRANSFER_OPERATION_RULES.remove.requiredRunStatus}`,
     )
   }
 

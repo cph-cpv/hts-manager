@@ -68,7 +68,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
 
   process.env.HTSM_DB_PATH = databasePath
 
-  const { getDb, migrateDatabase } = await import('../../src/db/schema')
+  const { getDb, migrateDatabase } = await import('../../src/db/db')
   const { claimJob, updateJobState } = await import('../../src/db/jobs')
   const {
     listProblemTransferRuns,

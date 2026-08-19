@@ -11,7 +11,7 @@ import {
 } from '~/components/ui/table'
 import { StatusBadge } from '~/components/StatusBadge'
 import { humanFileSize, formatDate } from '~/lib/format'
-import type { FileRow, FileWithRun } from '~/db/schema'
+import type { FileRow, FileWithRun } from '~/db/files'
 import type { ColumnVisibility } from '~/components/ColumnToggle'
 
 type FileSortKey =

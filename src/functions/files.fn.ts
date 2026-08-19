@@ -16,7 +16,8 @@ import {
   requestUploadForRun as requestUploadForRunRows,
   searchFiles,
 } from '../db/queries'
-import type { FileWithRun, RunWithTransferActivity } from '../db/schema'
+import type { FileWithRun } from '../db/files'
+import type { RunWithTransferActivity } from '../db/runs'
 import type { RunSummary } from '../db/queries'
 
 const listInput = z

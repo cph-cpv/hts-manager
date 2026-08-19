@@ -19,7 +19,7 @@ import {
   markUploaded,
   setUploading,
 } from '../db/queries'
-import type { FileRow } from '../db/schema'
+import type { FileRow } from '../db/files'
 import { getUploadConfig } from './config'
 
 /** Snapshot of the uploader, surfaced through `getStatus`. */

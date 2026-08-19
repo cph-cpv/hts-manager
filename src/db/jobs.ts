@@ -1,5 +1,5 @@
 /** Typed state transitions for persisted background jobs. */
-import { getDb } from './schema'
+import { getDb } from './db'
 import { nowIso } from './utils'
 
 export type JobState = 'waiting' | 'running' | 'complete' | 'error'

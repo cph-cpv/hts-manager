@@ -14,7 +14,7 @@ import type { ColumnVisibility } from '~/components/ColumnToggle'
 import { statusQueryKey } from '~/components/TopBar'
 import { RunTransferStatusBadge } from '~/components/RunTransferStatus'
 import { formatDate, formatTime, humanFileSize } from '~/lib/format'
-import type { FileWithRun } from '~/db/schema'
+import type { FileWithRun } from '~/db/files'
 
 export const Route = createFileRoute('/runs/$runId')({
   beforeLoad: async () => {

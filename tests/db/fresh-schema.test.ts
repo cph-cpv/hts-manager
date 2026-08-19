@@ -8,7 +8,7 @@ test('creates the merged schema for a fresh database', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'htsm-fresh-'))
   process.env.HTSM_DB_PATH = join(directory, 'hts-manager.db')
 
-  const { getDb, migrateDatabase } = await import('../../src/db/schema')
+  const { getDb, migrateDatabase } = await import('../../src/db/db')
   const { claimJob, enqueueJob, updateJobState } = await import(
     '../../src/db/jobs'
   )

@@ -3,7 +3,7 @@ import { Spinner } from '~/components/ui/spinner'
 import type {
   RunTransferStatus,
   TransferActivity,
-} from '~/db/schema'
+} from '~/db/runs'
 
 export function RunTransferStatusBadge({
   status,

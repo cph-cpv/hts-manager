@@ -5,12 +5,9 @@
  * cheap.
  */
 import { sep } from 'node:path'
-import {
-  getDb,
-  type FileRow,
-  type FileWithRun,
-  type RunWithTransferActivity,
-} from './schema'
+import { getDb } from './db'
+import type { FileRow, FileWithRun } from './files'
+import type { RunWithTransferActivity } from './runs'
 import type { DerivedRecord } from '../scan/parse'
 import { nowIso } from './utils'
 

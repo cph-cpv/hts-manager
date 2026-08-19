@@ -70,17 +70,26 @@ the `VT_UPLOAD_*` credentials are only validated once an upload actually runs.
 | `HTSM_SCAN_PATH` | No | _(unset)_ | Directory of Illumina run folders to scan. If unset, the startup scan is skipped and the file list stays empty until set. |
 | `HTSM_DB_PATH` | No | `./hts-manager.db` | Path to the better-sqlite3 database file. |
 
-### Transfer from sequencer output
+### Transfer from sequencer output (work in progress)
 
-Transfer is enabled by setting `HTSM_TRANSFER_SOURCE_PATH` to an absolute
-existing directory. `HTSM_SCAN_PATH` must then be set to an existing destination
-directory. The source and destination directories must be distinct and must not
-be nested inside each other.
+hts-manager is being developed to provide automated transfer of completed
+Illumina run folders from a sequencer-output directory to `HTSM_SCAN_PATH`, the
+central storage directory it scans for sequencing data. Set
+`HTSM_TRANSFER_SOURCE_PATH` to the sequencer-output directory to configure the
+source. Once implemented, hts-manager will copy whole run folders from there
+into `HTSM_SCAN_PATH`, where their FASTQ files can be indexed and made available
+for upload.
 
-Source files are retained unless `HTSM_TRANSFER_REMOVE_AFTER_DAYS` is set. A
-value of `0` makes a source eligible for removal as soon as transfer safety
-checks pass; a positive integer retains it for that many days. Negative,
-fractional, and non-numeric values are rejected during startup.
+Source run folders are retained by default. Set
+`HTSM_TRANSFER_REMOVE_AFTER_DAYS` to remove a source run after it has been
+successfully copied and retained for the configured number of days. For
+example, `365` retains source data for one year; `0` allows removal immediately
+after a successful copy.
+
+Both directories must already exist, the source must be an absolute path, and
+the source and destination must be distinct and not nested inside each other.
+Automated discovery, copying, and source removal are not available yet, so
+configuring these variables does not currently move or delete files.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |

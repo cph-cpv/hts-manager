@@ -1,7 +1,7 @@
 import { Badge } from '~/components/ui/badge'
 import { Spinner } from '~/components/ui/spinner'
 import { cn } from '~/lib/utils'
-import type { UploadStatus } from '~/db/schema'
+import type { UploadStatus } from '~/db/files'
 
 /** Map an upload status to a labelled badge for the file table. */
 export function StatusBadge({ status }: { status: UploadStatus }) {

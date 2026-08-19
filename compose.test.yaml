@@ -1,0 +1,16 @@
+services:
+  hts-manager:
+    build: .
+    ports:
+      - '3000:3000'
+    environment:
+      HTSM_PIN: test
+      HTSM_SESSION_SECRET: local-testing-only-change-before-sharing
+      HTSM_SECURE: 'false'
+      HTSM_DB_PATH: /state/hts-manager.db
+      HTSM_SCAN_PATH: /state
+      HTSM_TRANSFER_SOURCE_PATH: /input
+    volumes:
+      - ./test/input:/input:ro
+    tmpfs:
+      - /state:rw,size=1g

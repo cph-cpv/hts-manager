@@ -10,21 +10,15 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { deleteCookie, getCookie, setCookie } from '@tanstack/react-start/server'
+import { getAuthConfig } from './config'
 
 const COOKIE_NAME = 'htsm_session'
 /** Session cookie lifetime: one week. */
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 
-/** Read a required env var, failing loudly if it is unset. */
-function requireEnv(name: 'HTSM_PIN' | 'HTSM_SESSION_SECRET'): string {
-  const value = process.env[name]
-  if (!value) throw new Error(`${name} is not set`)
-  return value
-}
-
 /** Base64url HMAC-SHA256 of `value` keyed by the session secret. */
 function sign(value: string): string {
-  return createHmac('sha256', requireEnv('HTSM_SESSION_SECRET'))
+  return createHmac('sha256', getAuthConfig().sessionSecret)
     .update(value)
     .digest('base64url')
 }
@@ -42,7 +36,7 @@ function constantTimeEqual(a: string, b: string): boolean {
 
 /** Constant-time compare a submitted PIN against `HTSM_PIN`. */
 export function checkPin(pin: string): boolean {
-  return constantTimeEqual(pin, requireEnv('HTSM_PIN'))
+  return constantTimeEqual(pin, getAuthConfig().pin)
 }
 
 /** Mint a fresh signed session and set it as an httpOnly cookie on the response. */
@@ -53,7 +47,7 @@ export function issueSession(): void {
     sameSite: 'lax',
     path: '/',
     maxAge: MAX_AGE_SECONDS,
-    secure: process.env.HTSM_SECURE !== 'false',
+    secure: getAuthConfig().secure,
   })
 }
 

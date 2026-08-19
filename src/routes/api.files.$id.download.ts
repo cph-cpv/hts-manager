@@ -15,8 +15,9 @@ import { stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { createFileRoute } from '@tanstack/react-router'
-import { getFileById } from '../db/queries'
+import { getFileById } from '../db/files'
 import { hasValidSession } from '../server/auth'
+import { getConfig } from '../server/config'
 
 /** Plain-text response with no body caching, for the error paths. */
 function fail(status: number, message: string): Response {
@@ -35,7 +36,7 @@ function fail(status: number, message: string): Response {
  * future writer of that column cannot turn this route into an arbitrary file read.
  */
 function isUnderScanRoot(path: string): boolean {
-  const root = process.env.HTSM_SCAN_PATH
+  const root = getConfig().scanPath
   if (!root) return false
   const absRoot = resolve(root)
   const prefix = absRoot.endsWith(sep) ? absRoot : absRoot + sep

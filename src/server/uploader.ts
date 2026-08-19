@@ -18,8 +18,9 @@ import {
   markError,
   markUploaded,
   setUploading,
-} from '../db/queries'
-import type { FileRow } from '../db/schema'
+} from '../db/uploads'
+import type { FileRow } from '../db/files'
+import { getUploadConfig } from './config'
 
 /** Snapshot of the uploader, surfaced through `getStatus`. */
 export interface UploadState {
@@ -68,30 +69,14 @@ export function getUploadState(): UploadState {
   return { ...state, queued, errors }
 }
 
-/** Read upload config from the environment, failing loudly if creds are unset. */
-function uploadConfig(): {
-  url: string
-  type: string
-  authorization: string
-} {
-  const url = process.env.VT_UPLOAD_URL ?? 'https://preview.virtool.ca/api/uploads'
-  const type = process.env.VT_UPLOAD_FILE_TYPE ?? 'reads'
-  const handle = process.env.VT_UPLOAD_USER_HANDLE
-  const apiKey = process.env.VT_UPLOAD_API_KEY
-  if (!handle || !apiKey) {
-    throw new Error('VT_UPLOAD_USER_HANDLE and VT_UPLOAD_API_KEY must be set to upload')
-  }
-  const authorization = `Basic ${Buffer.from(`${handle}:${apiKey}`).toString('base64')}`
-  return { url, type, authorization }
-}
-
 /**
  * Stream one file to Virtool as a multipart POST and return the HTTP status.
  * The file is streamed from disk (`createReadStream` + `knownLength`) so it is
  * never buffered whole in memory.
  */
 async function postFile(row: FileRow): Promise<number> {
-  const { url, type, authorization } = uploadConfig()
+  const { url, type, userHandle, apiKey } = getUploadConfig()
+  const authorization = `Basic ${Buffer.from(`${userHandle}:${apiKey}`).toString('base64')}`
 
   const form = new FormData()
   form.append('file', createReadStream(row.path), {

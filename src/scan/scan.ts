@@ -13,7 +13,7 @@
 import { readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { deriveRecord, isFastqGz, parseRunFolder } from './parse'
-import { flagMissingExcept, getKnownPaths, insertIfNew } from '../db/queries'
+import { flagMissingExcept, getKnownPaths, insertIfNew } from '../db/files'
 
 /** Live progress reported during a scan (for the top-bar scanning indicator). */
 export interface ScanProgress {

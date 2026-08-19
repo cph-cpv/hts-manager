@@ -7,6 +7,7 @@
  * (step 6).
  */
 import { requestScan } from './scanner'
+import { readTransferConfig } from './config'
 import { startUploader } from './uploader'
 
 declare global {
@@ -20,6 +21,8 @@ declare global {
  */
 export function ensureWorkersStarted(): void {
   if (globalThis.__htsmWorkersStarted) return
+
+  readTransferConfig()
   globalThis.__htsmWorkersStarted = true
 
   // Startup scan; a no-op if HTSM_SCAN_PATH is unset (reason: 'no-scan-path').

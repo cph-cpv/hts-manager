@@ -18,3 +18,4 @@ dist/
 # scratch data
 illumina_tree.txt
 example/
+test/

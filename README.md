@@ -35,6 +35,21 @@ On boot the app scans `HTSM_SCAN_PATH` once, then keeps the file list and the tw
 top-bar indicators (scanning / upload activity) live; **Scan now** re-scans on
 demand.
 
+### Disposable Docker test environment
+
+The test Compose configuration mounts local fake sequencer output from
+`test/input` and keeps both the destination files and SQLite database in the
+same container-local tmpfs:
+
+```bash
+docker compose -f compose.test.yaml up --build
+```
+
+Open <http://localhost:3000> and log in with the test PIN `test`. The `test/`
+directory is ignored by Git, so local fixture data is never committed. The
+database and transferred output are both discarded when the test container is
+stopped.
+
 ## Configuration
 
 All configuration is via env vars — see [`.env.example`](./.env.example); there
@@ -54,6 +69,32 @@ the `VT_UPLOAD_*` credentials are only validated once an upload actually runs.
 | --- | --- | --- | --- |
 | `HTSM_SCAN_PATH` | No | _(unset)_ | Directory of Illumina run folders to scan. If unset, the startup scan is skipped and the file list stays empty until set. |
 | `HTSM_DB_PATH` | No | `./hts-manager.db` | Path to the better-sqlite3 database file. |
+
+### Transfer from sequencer output (work in progress)
+
+hts-manager is being developed to provide automated transfer of completed
+Illumina run folders from a sequencer-output directory to `HTSM_SCAN_PATH`, the
+central storage directory it scans for sequencing data. Set
+`HTSM_TRANSFER_SOURCE_PATH` to the sequencer-output directory to configure the
+source. Once implemented, hts-manager will copy whole run folders from there
+into `HTSM_SCAN_PATH`, where their FASTQ files can be indexed and made available
+for upload.
+
+Source run folders are retained by default. Set
+`HTSM_TRANSFER_REMOVE_AFTER_DAYS` to remove a source run after it has been
+successfully copied and retained for the configured number of days. For
+example, `365` retains source data for one year; `0` allows removal immediately
+after a successful copy.
+
+Both directories must already exist, the source must be an absolute path, and
+the source and destination must be distinct and not nested inside each other.
+Automated discovery, copying, and source removal are not available yet, so
+configuring these variables does not currently move or delete files.
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `HTSM_TRANSFER_SOURCE_PATH` | No | — | Absolute source directory containing sequencer-side run folders. Setting it enables managed transfer. |
+| `HTSM_TRANSFER_REMOVE_AFTER_DAYS` | No | _(unset)_ | Days to retain transferred source files. Unset retains them indefinitely; `0` allows immediate removal after safety checks. |
 
 ### Virtool upload target
 

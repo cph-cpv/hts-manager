@@ -9,10 +9,17 @@ import {
   TableHeader,
   TableRow,
 } from '~/components/ui/table'
+import { RunTransferStatusBadge } from '~/components/RunTransferStatus'
 import { formatDate } from '~/lib/format'
-import type { RunSummary } from '~/db/queries'
+import type { RunSummary } from '~/db/runs'
 
-type RunSortKey = 'run_folder' | 'run_date' | 'instrument' | 'flowcell' | 'file_count'
+type RunSortKey =
+  | 'run_folder'
+  | 'run_date'
+  | 'instrument'
+  | 'flowcell'
+  | 'transfer_status'
+  | 'file_count'
 
 type SortState = { key: RunSortKey; dir: 'asc' | 'desc' }
 
@@ -92,6 +99,12 @@ export function RunsTable({ runs }: { runs: RunSummary[] }) {
             <SortableHead label="Instrument" sortKey="instrument" current={sort} onSort={onSort} />
             <SortableHead label="Flowcell" sortKey="flowcell" current={sort} onSort={onSort} />
             <SortableHead
+              label="Transfer"
+              sortKey="transfer_status"
+              current={sort}
+              onSort={onSort}
+            />
+            <SortableHead
               label="Files"
               sortKey="file_count"
               current={sort}
@@ -118,6 +131,12 @@ export function RunsTable({ runs }: { runs: RunSummary[] }) {
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {run.flowcell}
+              </TableCell>
+              <TableCell>
+                <RunTransferStatusBadge
+                  status={run.transfer_status}
+                  activity={run.transfer_activity}
+                />
               </TableCell>
               <TableCell className="text-right text-muted-foreground">
                 {run.file_count}

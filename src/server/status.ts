@@ -4,7 +4,7 @@
  * object so the UI can drive both indicators (scanning + upload activity) from a
  * single `getStatus` poll. See plan.md (step 7).
  */
-import { getAggregateCounts, type AggregateCounts } from '../db/queries'
+import { getAggregateCounts, type AggregateCounts } from '../db/files'
 import { getScanState, type ScanState } from './scanner'
 import { getUploadState, type UploadState } from './uploader'
 

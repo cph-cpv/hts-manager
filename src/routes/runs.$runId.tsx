@@ -12,8 +12,9 @@ import { Button } from '~/components/ui/button'
 import { FileTable } from '~/components/FileTable'
 import type { ColumnVisibility } from '~/components/ColumnToggle'
 import { statusQueryKey } from '~/components/TopBar'
+import { RunTransferStatusBadge } from '~/components/RunTransferStatus'
 import { formatDate, formatTime, humanFileSize } from '~/lib/format'
-import type { FileWithRun } from '~/db/schema'
+import type { FileWithRun } from '~/db/files'
 
 export const Route = createFileRoute('/runs/$runId')({
   beforeLoad: async () => {
@@ -123,21 +124,29 @@ function RunDetail() {
 
       <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">{run.run_folder}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-semibold">{run.run_folder}</h1>
+            <RunTransferStatusBadge
+              status={run.transfer_status}
+              activity={run.transfer_activity}
+            />
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {files.length} file{files.length === 1 ? '' : 's'} ·{' '}
             {humanFileSize(totalSize(files))}
           </p>
         </div>
-        <Button
-          type="button"
-          onClick={() => runUploadMutation.mutate()}
-          disabled={runUploadMutation.isPending || pending === 0}
-          title={pending === 0 ? 'All files uploaded' : undefined}
-        >
-          <UploadIcon />
-          {pending === 0 ? 'All uploaded' : 'Upload Run'}
-        </Button>
+        {files.length > 0 && (
+          <Button
+            type="button"
+            onClick={() => runUploadMutation.mutate()}
+            disabled={runUploadMutation.isPending || pending === 0}
+            title={pending === 0 ? 'All files uploaded' : undefined}
+          >
+            <UploadIcon />
+            {pending === 0 ? 'All uploaded' : 'Upload Run'}
+          </Button>
+        )}
       </div>
 
       <dl className="mt-6 grid grid-cols-2 gap-4 rounded-md border p-4 sm:grid-cols-3 lg:grid-cols-6">
@@ -146,7 +155,10 @@ function RunDetail() {
         <MetaItem label="Run number" value={run.run_number || '—'} />
         <MetaItem label="Flowcell" value={run.flowcell || '—'} />
         <MetaItem label="First seen" value={formatTime(run.first_seen_at)} />
-        <MetaItem label="Last scanned" value={formatTime(run.last_scanned_at)} />
+        <MetaItem
+          label="Last scanned"
+          value={run.last_scanned_at ? formatTime(run.last_scanned_at) : 'Never'}
+        />
       </dl>
 
       <div className="mt-6">

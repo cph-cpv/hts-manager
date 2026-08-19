@@ -5,6 +5,7 @@ node_modules
 .tanstack
 dist
 example
+test
 *.db
 *.db-shm
 *.db-wal

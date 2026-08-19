@@ -10,14 +10,18 @@ import { ensureWorkersStarted } from '../server/bootstrap'
 import {
   countFiles,
   getFilesForRun,
+  searchFiles,
+} from '../db/files'
+import {
   getRunById,
   listRuns as listRunsQuery,
+} from '../db/runs'
+import {
   requestUpload as requestUploadRow,
   requestUploadForRun as requestUploadForRunRows,
-  searchFiles,
-} from '../db/queries'
-import type { FileWithRun, RunRow } from '../db/schema'
-import type { RunSummary } from '../db/queries'
+} from '../db/uploads'
+import type { FileWithRun } from '../db/files'
+import type { RunSummary, RunWithTransferActivity } from '../db/runs'
 
 const listInput = z
   .object({
@@ -55,7 +59,7 @@ const runInput = z.object({ runId: z.number().int().positive() })
 
 /** A single run plus its files, or `run: null` when the id is unknown. */
 export interface GetRunResult {
-  run: RunRow | null
+  run: RunWithTransferActivity | null
   files: FileWithRun[]
 }
 

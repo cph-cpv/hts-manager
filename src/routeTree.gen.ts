@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
 import { Route as AppRunsRouteImport } from './routes/_app.runs'
 import { Route as AppFilesRouteImport } from './routes/_app.files'
+import { Route as ApiFilesIdDownloadRouteImport } from './routes/api.files.$id.download'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -45,6 +46,11 @@ const AppFilesRoute = AppFilesRouteImport.update({
   path: '/files',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiFilesIdDownloadRoute = ApiFilesIdDownloadRouteImport.update({
+  id: '/api/files/$id/download',
+  path: '/api/files/$id/download',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -52,6 +58,7 @@ export interface FileRoutesByFullPath {
   '/files': typeof AppFilesRoute
   '/runs': typeof AppRunsRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/api/files/$id/download': typeof ApiFilesIdDownloadRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByTo {
   '/files': typeof AppFilesRoute
   '/runs': typeof AppRunsRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/api/files/$id/download': typeof ApiFilesIdDownloadRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -68,12 +76,25 @@ export interface FileRoutesById {
   '/_app/files': typeof AppFilesRoute
   '/_app/runs': typeof AppRunsRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/api/files/$id/download': typeof ApiFilesIdDownloadRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/files' | '/runs' | '/runs/$runId'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/files'
+    | '/runs'
+    | '/runs/$runId'
+    | '/api/files/$id/download'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/files' | '/runs' | '/runs/$runId'
+  to:
+    | '/'
+    | '/login'
+    | '/files'
+    | '/runs'
+    | '/runs/$runId'
+    | '/api/files/$id/download'
   id:
     | '__root__'
     | '/'
@@ -82,6 +103,7 @@ export interface FileRouteTypes {
     | '/_app/files'
     | '/_app/runs'
     | '/runs/$runId'
+    | '/api/files/$id/download'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -89,6 +111,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   RunsRunIdRoute: typeof RunsRunIdRoute
+  ApiFilesIdDownloadRoute: typeof ApiFilesIdDownloadRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -135,6 +158,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFilesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/files/$id/download': {
+      id: '/api/files/$id/download'
+      path: '/api/files/$id/download'
+      fullPath: '/api/files/$id/download'
+      preLoaderRoute: typeof ApiFilesIdDownloadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -155,6 +185,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   RunsRunIdRoute: RunsRunIdRoute,
+  ApiFilesIdDownloadRoute: ApiFilesIdDownloadRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

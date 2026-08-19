@@ -114,6 +114,13 @@ export function countFiles(
   return row.n
 }
 
+/** Fetch a single file by id, or undefined if not found. */
+export function getFileById(id: number): FileRow | undefined {
+  return getDb()
+    .prepare('SELECT * FROM files WHERE id = ?')
+    .get(id) as FileRow | undefined
+}
+
 /** One-pass aggregate counts across all file rows, for the status snapshot. */
 export function getAggregateCounts(): AggregateCounts {
   return getDb()

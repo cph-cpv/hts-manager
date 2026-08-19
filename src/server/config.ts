@@ -1,3 +1,5 @@
+import { realpathSync, statSync } from 'node:fs'
+import { isAbsolute, relative } from 'node:path'
 import { z } from 'zod'
 
 function emptyStringToUndefined(value: unknown): unknown {
@@ -66,6 +68,13 @@ export type Config = {
   }
 }
 
+export type TransferConfig = {
+  enabled: boolean
+  sourcePath: string | null
+  destinationPath: string | null
+  removeAfterDays: number | null
+}
+
 /** Parse raw environment strings into the application's typed configuration. */
 export function readConfig(env: NodeJS.ProcessEnv): Config {
   const parsed = environmentSchema.parse(env)
@@ -96,6 +105,82 @@ let config: Config | undefined
 export function getConfig(): Config {
   config ??= readConfig(process.env)
   return config
+}
+
+function requireDirectory(name: string, path: string): string {
+  let stat
+  try {
+    stat = statSync(path)
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`${name} must exist and be a directory: ${detail}`)
+  }
+
+  if (!stat.isDirectory()) throw new Error(`${name} must be a directory`)
+  return realpathSync(path)
+}
+
+function isNestedPath(parent: string, child: string): boolean {
+  const result = relative(parent, child)
+  return result !== '' && !result.startsWith('..') && !isAbsolute(result)
+}
+
+/** Resolve and validate the configuration used by managed transfers. */
+export function readTransferConfig(env?: NodeJS.ProcessEnv): TransferConfig {
+  const currentConfig = env ? readConfig(env) : getConfig()
+  const { sourcePath: configuredSourcePath, removeAfterDays } =
+    currentConfig.transfer
+
+  if (!configuredSourcePath) {
+    if (removeAfterDays !== undefined) {
+      throw new Error(
+        'HTSM_TRANSFER_REMOVE_AFTER_DAYS requires HTSM_TRANSFER_SOURCE_PATH',
+      )
+    }
+    return {
+      enabled: false,
+      sourcePath: null,
+      destinationPath: currentConfig.scanPath ?? null,
+      removeAfterDays: null,
+    }
+  }
+
+  if (!isAbsolute(configuredSourcePath)) {
+    throw new Error('HTSM_TRANSFER_SOURCE_PATH must be absolute')
+  }
+
+  const configuredDestinationPath = currentConfig.scanPath
+  if (!configuredDestinationPath) {
+    throw new Error('HTSM_SCAN_PATH is required when transfer source is set')
+  }
+
+  const sourcePath = requireDirectory(
+    'HTSM_TRANSFER_SOURCE_PATH',
+    configuredSourcePath,
+  )
+  const destinationPath = requireDirectory(
+    'HTSM_SCAN_PATH',
+    configuredDestinationPath,
+  )
+
+  if (sourcePath === destinationPath) {
+    throw new Error('HTSM_TRANSFER_SOURCE_PATH and HTSM_SCAN_PATH must be distinct')
+  }
+  if (
+    isNestedPath(sourcePath, destinationPath) ||
+    isNestedPath(destinationPath, sourcePath)
+  ) {
+    throw new Error(
+      'HTSM_TRANSFER_SOURCE_PATH and HTSM_SCAN_PATH must not be nested',
+    )
+  }
+
+  return {
+    enabled: true,
+    sourcePath,
+    destinationPath,
+    removeAfterDays: removeAfterDays ?? null,
+  }
 }
 
 export function getAuthConfig(): {

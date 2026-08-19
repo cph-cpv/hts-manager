@@ -3,8 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { readConfig } from '../../src/server/config'
-import { readTransferConfig } from '../../src/server/transfer-config'
+import {
+  readConfig,
+  readTransferConfig,
+} from '../../src/server/config'
 
 test('uses the source path to enable managed transfer', () => {
   assert.deepEqual(readTransferConfig({}), {

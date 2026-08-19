@@ -7,7 +7,7 @@
  * (step 6).
  */
 import { requestScan } from './scanner'
-import { readTransferConfig } from './transfer-config'
+import { readTransferConfig } from './config'
 import { startUploader } from './uploader'
 
 declare global {

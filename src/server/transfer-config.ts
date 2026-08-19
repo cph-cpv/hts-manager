@@ -6,10 +6,7 @@ export type TransferConfig = {
   enabled: boolean
   sourcePath: string | null
   destinationPath: string | null
-  quietMinutes: number
-  pollSeconds: number
-  removeSourceEnabled: boolean
-  removeAfterDays: number
+  removeAfterDays: number | null
 }
 
 function requireDirectory(name: string, path: string): string {
@@ -31,44 +28,34 @@ function isNestedPath(parent: string, child: string): boolean {
 }
 
 /**
- * Resolve transfer settings and validate transfer-specific paths only when
- * transfer is enabled, so normal hts-manager boot remains unchanged.
+ * Resolve transfer settings and validate transfer-specific paths only when a
+ * source is configured, so normal hts-manager boot remains unchanged.
  */
 export function readTransferConfig(env?: NodeJS.ProcessEnv): TransferConfig {
   const config = env ? readConfig(env) : getConfig()
-  const {
-    enabled,
-    sourcePath: configuredSourcePath,
-    quietMinutes,
-    pollSeconds,
-    removeSourceEnabled,
-    removeAfterDays,
-  } = config.transfer
+  const { sourcePath: configuredSourcePath, removeAfterDays } = config.transfer
 
-  if (!enabled) {
+  if (!configuredSourcePath) {
+    if (removeAfterDays !== undefined) {
+      throw new Error(
+        'HTSM_TRANSFER_REMOVE_AFTER_DAYS requires HTSM_TRANSFER_SOURCE_PATH',
+      )
+    }
     return {
-      enabled,
+      enabled: false,
       sourcePath: null,
       destinationPath: config.scanPath ?? null,
-      quietMinutes,
-      pollSeconds,
-      removeSourceEnabled,
-      removeAfterDays,
+      removeAfterDays: null,
     }
   }
 
-  if (!configuredSourcePath) {
-    throw new Error(
-      'HTSM_TRANSFER_SOURCE_PATH is required when HTSM_TRANSFER_ENABLED is true',
-    )
-  }
   if (!isAbsolute(configuredSourcePath)) {
     throw new Error('HTSM_TRANSFER_SOURCE_PATH must be absolute')
   }
 
   const configuredDestinationPath = config.scanPath
   if (!configuredDestinationPath) {
-    throw new Error('HTSM_SCAN_PATH is required when transfer is enabled')
+    throw new Error('HTSM_SCAN_PATH is required when transfer source is set')
   }
 
   const sourcePath = requireDirectory(
@@ -93,12 +80,9 @@ export function readTransferConfig(env?: NodeJS.ProcessEnv): TransferConfig {
   }
 
   return {
-    enabled,
+    enabled: true,
     sourcePath,
     destinationPath,
-    quietMinutes,
-    pollSeconds,
-    removeSourceEnabled,
-    removeAfterDays,
+    removeAfterDays: removeAfterDays ?? null,
   }
 }

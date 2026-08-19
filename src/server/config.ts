@@ -18,13 +18,10 @@ function booleanFromEnv(defaultValue: boolean) {
   )
 }
 
-function integerFromEnv(defaultValue: number, positive = false) {
-  const number = z.coerce.number().int()
-  return z.preprocess(
-    emptyStringToUndefined,
-    (positive ? number.positive() : number.nonnegative()).default(defaultValue),
-  )
-}
+const optionalNonnegativeInteger = z.preprocess(
+  emptyStringToUndefined,
+  z.coerce.number().int().nonnegative().optional(),
+)
 
 const environmentSchema = z.object({
   HTSM_PIN: optionalString,
@@ -35,12 +32,8 @@ const environmentSchema = z.object({
     z.string().min(1).default('./hts-manager.db'),
   ),
   HTSM_SCAN_PATH: optionalString,
-  HTSM_TRANSFER_ENABLED: booleanFromEnv(false),
   HTSM_TRANSFER_SOURCE_PATH: optionalString,
-  HTSM_TRANSFER_QUIET_MINUTES: integerFromEnv(60),
-  HTSM_TRANSFER_POLL_SECONDS: integerFromEnv(60, true),
-  HTSM_TRANSFER_REMOVE_SOURCE_ENABLED: booleanFromEnv(false),
-  HTSM_TRANSFER_REMOVE_AFTER_DAYS: integerFromEnv(0),
+  HTSM_TRANSFER_REMOVE_AFTER_DAYS: optionalNonnegativeInteger,
   VT_UPLOAD_URL: z.preprocess(
     emptyStringToUndefined,
     z.url().default('https://preview.virtool.ca/api/uploads'),
@@ -62,12 +55,8 @@ export type Config = {
   dbPath: string
   scanPath: string | undefined
   transfer: {
-    enabled: boolean
     sourcePath: string | undefined
-    quietMinutes: number
-    pollSeconds: number
-    removeSourceEnabled: boolean
-    removeAfterDays: number
+    removeAfterDays: number | undefined
   }
   upload: {
     url: string
@@ -89,11 +78,7 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
     dbPath: parsed.HTSM_DB_PATH,
     scanPath: parsed.HTSM_SCAN_PATH,
     transfer: {
-      enabled: parsed.HTSM_TRANSFER_ENABLED,
       sourcePath: parsed.HTSM_TRANSFER_SOURCE_PATH,
-      quietMinutes: parsed.HTSM_TRANSFER_QUIET_MINUTES,
-      pollSeconds: parsed.HTSM_TRANSFER_POLL_SECONDS,
-      removeSourceEnabled: parsed.HTSM_TRANSFER_REMOVE_SOURCE_ENABLED,
       removeAfterDays: parsed.HTSM_TRANSFER_REMOVE_AFTER_DAYS,
     },
     upload: {

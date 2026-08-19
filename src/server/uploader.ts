@@ -18,7 +18,7 @@ import {
   markError,
   markUploaded,
   setUploading,
-} from '../db/queries'
+} from '../db/uploads'
 import type { FileRow } from '../db/files'
 import { getUploadConfig } from './config'
 

@@ -1,4 +1,8 @@
+import { sep } from 'node:path'
+import type { DerivedRecord } from '../scan/parse'
 import { getDb } from './db'
+import { upsertRun } from './runs'
+import { nowIso } from './utils'
 
 /** Upload lifecycle for a file row. */
 export type UploadStatus =
@@ -136,4 +140,98 @@ export function getFilesForRun(runId: number): FileWithRun[] {
         ORDER BY f.name ASC`,
     )
     .all(runId) as FileWithRun[]
+}
+
+/**
+ * Insert a freshly-derived file row if its path is not already known. Existing
+ * rows are left untouched (the scan reconciles their `missing`/`last_scanned_at`
+ * separately via {@link flagMissingExcept}). Returns true if a row was inserted.
+ */
+export function insertIfNew(file: DerivedRecord): boolean {
+  const now = nowIso()
+  const runId = upsertRun(file)
+  const info = getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO files
+         (run_id, path, name, size, lane, first_seen_at, last_scanned_at)
+       VALUES
+         (@run_id, @path, @name, @size, @lane, @first_seen_at, @last_scanned_at)`,
+    )
+    .run({
+      run_id: runId,
+      path: file.path,
+      name: file.name,
+      size: file.size,
+      lane: file.lane,
+      first_seen_at: now,
+      last_scanned_at: now,
+    })
+  return info.changes > 0
+}
+
+/**
+ * Reconcile the `missing` flag after a scan walk under `root`:
+ * every still-present path in `seenPaths` is marked `missing = 0`, and every row
+ * whose path lives under `root` but was *not* seen is marked `missing = 1`. Both
+ * sets get a fresh `last_scanned_at`. Returns the number of rows now flagged
+ * missing under `root`.
+ *
+ * Uses a temp table of seen paths so it scales past SQLite's bound-parameter
+ * limit, and a prefix-equality test (`substr(...) = prefix`) rather than `LIKE`
+ * so path separators and `_`/`%` in `root` are matched literally.
+ */
+export function flagMissingExcept(root: string, seenPaths: string[]): number {
+  const db = getDb()
+  const now = nowIso()
+  const prefix = root.endsWith(sep) ? root : root + sep
+
+  const reconcile = db.transaction((paths: string[]) => {
+    db.exec('CREATE TEMP TABLE IF NOT EXISTS _seen (path TEXT PRIMARY KEY)')
+    db.exec('DELETE FROM _seen')
+
+    const insertSeen = db.prepare('INSERT OR IGNORE INTO _seen(path) VALUES (?)')
+    for (const path of paths) insertSeen.run(path)
+
+    db.prepare(
+      `UPDATE files
+          SET missing = 0, last_scanned_at = ?
+        WHERE path IN (SELECT path FROM _seen)`,
+    ).run(now)
+
+    const missing = db
+      .prepare(
+        `UPDATE files
+            SET missing = 1, last_scanned_at = ?
+          WHERE substr(path, 1, ?) = ?
+            AND path NOT IN (SELECT path FROM _seen)`,
+      )
+      .run(now, prefix.length, prefix)
+
+    // Refresh last_scanned_at on every run that had at least one file seen.
+    db.prepare(
+      `UPDATE runs
+          SET last_scanned_at = ?
+        WHERE id IN (
+          SELECT DISTINCT run_id FROM files
+           WHERE path IN (SELECT path FROM _seen)
+             AND run_id IS NOT NULL
+        )`,
+    ).run(now)
+
+    return missing.changes
+  })
+
+  return reconcile(seenPaths)
+}
+
+/**
+ * All file paths currently in the DB, as a Set. The scan walk consults this to
+ * skip files it already knows about *before* doing an `fs.stat`, so a re-scan of
+ * an unchanged tree costs no stat calls.
+ */
+export function getKnownPaths(): Set<string> {
+  const rows = getDb().prepare('SELECT path FROM files').all() as {
+    path: string
+  }[]
+  return new Set(rows.map((row) => row.path))
 }

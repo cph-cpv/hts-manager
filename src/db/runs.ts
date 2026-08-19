@@ -1,4 +1,6 @@
+import type { DerivedRecord } from '../scan/parse'
 import { getDb } from './db'
+import { nowIso } from './utils'
 
 /** Durable transfer milestone for a run; temporary activity lives on jobs. */
 export type RunTransferStatus =
@@ -31,6 +33,38 @@ export interface RunWithTransferActivity extends RunRow {
 /** A run with the number of associated files. */
 export interface RunSummary extends RunWithTransferActivity {
   file_count: number
+}
+
+/**
+ * Insert or look up the run record for a derived file, returning its id.
+ * The `runs` table deduplicates by `run_folder`; subsequent files in the same
+ * run folder get the same id. `last_scanned_at` is refreshed on every call so
+ * it reflects the most-recent scan that visited this run.
+ */
+export function upsertRun(file: DerivedRecord): number {
+  const db = getDb()
+  const now = nowIso()
+  db.prepare(
+    `INSERT OR IGNORE INTO runs
+       (run_folder, run_date, instrument, run_number, flowcell,
+        first_seen_at, last_scanned_at)
+     VALUES
+       (@run_folder, @run_date, @instrument, @run_number, @flowcell,
+        @first_seen_at, @last_scanned_at)`,
+  ).run({
+    run_folder: file.run_folder,
+    run_date: file.run_date,
+    instrument: file.instrument,
+    run_number: file.run_number,
+    flowcell: file.flowcell,
+    first_seen_at: now,
+    last_scanned_at: now,
+  })
+  return (
+    db.prepare('SELECT id FROM runs WHERE run_folder = ?').get(file.run_folder) as {
+      id: number
+    }
+  ).id
 }
 
 /** List all runs, newest run date first. */

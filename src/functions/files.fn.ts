@@ -19,7 +19,7 @@ import {
 import {
   requestUpload as requestUploadRow,
   requestUploadForRun as requestUploadForRunRows,
-} from '../db/queries'
+} from '../db/uploads'
 import type { FileWithRun } from '../db/files'
 import type { RunSummary, RunWithTransferActivity } from '../db/runs'
 

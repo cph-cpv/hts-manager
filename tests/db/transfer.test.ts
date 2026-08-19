@@ -80,7 +80,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
     queueRunRemovalJob,
     upsertDetectedRun,
   } = await import('../../src/db/transfer')
-  const { flagMissingExcept, insertIfNew } = await import('../../src/db/queries')
+  const { flagMissingExcept, insertIfNew } = await import('../../src/db/files')
   const { getRunById } = await import('../../src/db/runs')
 
   migrateDatabase()

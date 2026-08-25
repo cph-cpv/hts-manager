@@ -206,7 +206,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
     assert.equal(discovery.kind, 'discover')
     assert.equal(discovery.target_type, null)
     assert.equal(discovery.target_id, null)
-    updateJobState(claimJob()!.id, 'complete')
+    updateJobState(claimJob(['discover'])!.id, 'complete')
 
     const copy = queueRunCopyJob(detected.id)
     assert.equal(copy.state, 'waiting')
@@ -218,7 +218,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
       { transfer_status: 'ready' },
     )
 
-    const failedCopy = claimJob()!
+    const failedCopy = claimJob(['copy'])!
     assert.equal(failedCopy.id, copy.id)
     assert.equal(getRunById(detected.id)?.transfer_activity, 'copying')
     updateJobState(failedCopy.id, 'error', 'copy failed')
@@ -229,7 +229,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
     )
 
     queueRunCopyJob(detected.id)
-    const completedCopy = claimJob()!
+    const completedCopy = claimJob(['copy'])!
     updateJobState(completedCopy.id, 'complete')
     assert.deepEqual(
       db.prepare('SELECT transfer_status FROM runs WHERE id = ?').get(detected.id),
@@ -242,7 +242,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
     )
 
     queueRunRemovalJob(detected.id)
-    const failedRemoval = claimJob()!
+    const failedRemoval = claimJob(['remove'])!
     assert.equal(getRunById(detected.id)?.transfer_activity, 'removing')
     updateJobState(failedRemoval.id, 'error', 'remove failed')
     assert.deepEqual(
@@ -251,7 +251,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
     )
 
     queueRunRemovalJob(detected.id)
-    const completedRemoval = claimJob()!
+    const completedRemoval = claimJob(['remove'])!
     updateJobState(completedRemoval.id, 'complete')
     assert.deepEqual(
       db.prepare('SELECT transfer_status FROM runs WHERE id = ?').get(detected.id),

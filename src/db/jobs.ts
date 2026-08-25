@@ -82,8 +82,16 @@ export function enqueueJob({
     }) as JobRow
 }
 
-/** Atomically claim the oldest waiting job. */
-export function claimJob(): JobRow | undefined {
+/**
+ * Atomically claim the oldest waiting job whose kind the worker supports.
+ * An empty registry cannot claim work.
+ */
+export function claimJob(
+  supportedKinds: readonly string[],
+): JobRow | undefined {
+  if (supportedKinds.length === 0) return undefined
+
+  const placeholders = supportedKinds.map(() => '?').join(', ')
   return getDb()
     .prepare(
       `UPDATE jobs
@@ -93,13 +101,14 @@ export function claimJob(): JobRow | undefined {
         WHERE id = (
           SELECT id FROM jobs
            WHERE state = 'waiting'
+             AND kind IN (${placeholders})
            ORDER BY created_at ASC, id ASC
            LIMIT 1
         )
           AND state = 'waiting'
       RETURNING *`,
     )
-    .get(nowIso()) as JobRow | undefined
+    .get(nowIso(), ...supportedKinds) as JobRow | undefined
 }
 
 /**

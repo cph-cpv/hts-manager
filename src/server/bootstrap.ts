@@ -1,12 +1,11 @@
 /**
- * One-time startup hook for the in-process background workers. TanStack Start
- * server functions are request-scoped, so the scanner, uploader, and transfer
- * job loops live as guarded singletons started here. {@link ensureWorkersStarted}
- * is safe to call on every request (from the root loader / first authed fn) — a
- * `globalThis` flag ensures the workers spin up exactly once per server process.
+ * One-time startup hook for the in-process background workers. The Nitro startup
+ * plugin calls {@link ensureWorkersStarted} after configuration validation and
+ * database migration. A `globalThis` flag prevents duplicate loops if Nitro is
+ * initialized more than once in the same process.
  */
 import { requestScan } from './scanner'
-import { readTransferConfig } from './config'
+import type { TransferConfig } from './config'
 import { startJobWorkers } from './job-worker'
 import { startUploader } from './uploader'
 
@@ -20,10 +19,9 @@ declare global {
  * process. Start transfer job loops too when transfer is enabled. Subsequent
  * calls are no-ops.
  */
-export function ensureWorkersStarted(): void {
+export function ensureWorkersStarted(transferConfig: TransferConfig): void {
   if (globalThis.__htsmWorkersStarted) return
 
-  const transferConfig = readTransferConfig()
   globalThis.__htsmWorkersStarted = true
 
   // Startup scan; a no-op if HTSM_SCAN_PATH is unset (reason: 'no-scan-path').

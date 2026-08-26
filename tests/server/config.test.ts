@@ -3,13 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import {
-  readConfig,
-  readTransferConfig,
-} from '../../src/server/config'
+import { ZodError } from 'zod'
+import { readConfig } from '../../src/server/config'
 
 test('uses the source path to enable managed transfer', () => {
-  assert.deepEqual(readTransferConfig({}), {
+  assert.deepEqual(readConfig({}).transfer, {
     enabled: false,
     sourcePath: null,
     destinationPath: null,
@@ -24,10 +22,10 @@ test('uses the source path to enable managed transfer', () => {
 
   try {
     assert.deepEqual(
-      readTransferConfig({
+      readConfig({
         HTSM_TRANSFER_SOURCE_PATH: sourcePath,
         HTSM_SCAN_PATH: destinationPath,
-      }),
+      }).transfer,
       {
         enabled: true,
         sourcePath,
@@ -36,11 +34,11 @@ test('uses the source path to enable managed transfer', () => {
       },
     )
     assert.equal(
-      readTransferConfig({
+      readConfig({
         HTSM_TRANSFER_SOURCE_PATH: sourcePath,
         HTSM_SCAN_PATH: destinationPath,
         HTSM_TRANSFER_REMOVE_AFTER_DAYS: '0',
-      }).removeAfterDays,
+      }).transfer.removeAfterDays,
       0,
     )
   } finally {
@@ -48,23 +46,8 @@ test('uses the source path to enable managed transfer', () => {
   }
 })
 
-test('treats removal retention as optional and accepts zero', () => {
-  assert.equal(readConfig({}).transfer.removeAfterDays, undefined)
-  assert.equal(
-    readConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: '' }).transfer
-      .removeAfterDays,
-    undefined,
-  )
-  assert.equal(
-    readConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: '0' }).transfer
-      .removeAfterDays,
-    0,
-  )
-  assert.equal(
-    readConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: '14' }).transfer
-      .removeAfterDays,
-    14,
-  )
+test('normalizes omitted removal retention to null', () => {
+  assert.equal(readConfig({}).transfer.removeAfterDays, null)
 })
 
 test('rejects invalid source-removal retention values', () => {
@@ -76,9 +59,16 @@ test('rejects invalid source-removal retention values', () => {
   }
 })
 
-test('rejects source-removal retention without a transfer source', () => {
+test('reports cross-field transfer errors through Zod', () => {
   assert.throws(
-    () => readTransferConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: '7' }),
-    /HTSM_TRANSFER_REMOVE_AFTER_DAYS requires HTSM_TRANSFER_SOURCE_PATH/,
+    () => readConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: '7' }),
+    (error) =>
+      error instanceof ZodError &&
+      error.issues.some(
+        (issue) =>
+          issue.path.join('.') === 'HTSM_TRANSFER_REMOVE_AFTER_DAYS' &&
+          issue.message ===
+            'HTSM_TRANSFER_REMOVE_AFTER_DAYS requires HTSM_TRANSFER_SOURCE_PATH',
+      ),
   )
 })

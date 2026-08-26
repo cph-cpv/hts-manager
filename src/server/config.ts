@@ -25,78 +25,132 @@ const optionalNonnegativeInteger = z.preprocess(
   z.coerce.number().int().nonnegative().optional(),
 )
 
-const environmentSchema = z.object({
-  HTSM_PIN: optionalString,
-  HTSM_SESSION_SECRET: optionalString,
-  HTSM_SECURE: booleanFromEnv(true),
-  HTSM_DB_PATH: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default('./hts-manager.db'),
-  ),
-  HTSM_SCAN_PATH: optionalString,
-  HTSM_TRANSFER_SOURCE_PATH: optionalString,
-  HTSM_TRANSFER_REMOVE_AFTER_DAYS: optionalNonnegativeInteger,
-  VT_UPLOAD_URL: z.preprocess(
-    emptyStringToUndefined,
-    z.url().default('https://preview.virtool.ca/api/uploads'),
-  ),
-  VT_UPLOAD_FILE_TYPE: z.preprocess(
-    emptyStringToUndefined,
-    z.string().min(1).default('reads'),
-  ),
-  VT_UPLOAD_USER_HANDLE: optionalString,
-  VT_UPLOAD_API_KEY: optionalString,
-})
+const environmentSchema = z
+  .object({
+    HTSM_PIN: optionalString,
+    HTSM_SESSION_SECRET: optionalString,
+    HTSM_SECURE: booleanFromEnv(true),
+    HTSM_DB_PATH: z.preprocess(
+      emptyStringToUndefined,
+      z.string().min(1).default('./hts-manager.db'),
+    ),
+    HTSM_SCAN_PATH: optionalString,
+    HTSM_TRANSFER_SOURCE_PATH: optionalString,
+    HTSM_TRANSFER_REMOVE_AFTER_DAYS: optionalNonnegativeInteger,
+    VT_UPLOAD_URL: z.preprocess(
+      emptyStringToUndefined,
+      z.url().default('https://preview.virtool.ca/api/uploads'),
+    ),
+    VT_UPLOAD_FILE_TYPE: z.preprocess(
+      emptyStringToUndefined,
+      z.string().min(1).default('reads'),
+    ),
+    VT_UPLOAD_USER_HANDLE: optionalString,
+    VT_UPLOAD_API_KEY: optionalString,
+  })
+  .superRefine((env, ctx) => {
+    const sourcePath = env.HTSM_TRANSFER_SOURCE_PATH
+    const destinationPath = env.HTSM_SCAN_PATH
 
-export type Config = {
-  auth: {
-    pin: string | undefined
-    sessionSecret: string | undefined
-    secure: boolean
-  }
-  dbPath: string
-  scanPath: string | undefined
-  transfer: {
-    sourcePath: string | undefined
-    removeAfterDays: number | undefined
-  }
-  upload: {
-    url: string
-    type: string
-    userHandle: string | undefined
-    apiKey: string | undefined
-  }
-}
+    if (!sourcePath) {
+      if (env.HTSM_TRANSFER_REMOVE_AFTER_DAYS !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['HTSM_TRANSFER_REMOVE_AFTER_DAYS'],
+          message:
+            'HTSM_TRANSFER_REMOVE_AFTER_DAYS requires HTSM_TRANSFER_SOURCE_PATH',
+        })
+      }
+      return
+    }
 
-export type TransferConfig = {
-  enabled: boolean
-  sourcePath: string | null
-  destinationPath: string | null
-  removeAfterDays: number | null
-}
+    if (!isAbsolute(sourcePath)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['HTSM_TRANSFER_SOURCE_PATH'],
+        message: 'HTSM_TRANSFER_SOURCE_PATH must be absolute',
+      })
+    }
+
+    if (!destinationPath) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['HTSM_SCAN_PATH'],
+        message: 'HTSM_SCAN_PATH is required when transfer source is set',
+      })
+      return
+    }
+
+    const resolvedSourcePath = isAbsolute(sourcePath)
+      ? validateDirectory('HTSM_TRANSFER_SOURCE_PATH', sourcePath, ctx)
+      : undefined
+    const resolvedDestinationPath = validateDirectory(
+      'HTSM_SCAN_PATH',
+      destinationPath,
+      ctx,
+    )
+
+    if (!resolvedSourcePath || !resolvedDestinationPath) return
+
+    if (resolvedSourcePath === resolvedDestinationPath) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['HTSM_TRANSFER_SOURCE_PATH'],
+        message:
+          'HTSM_TRANSFER_SOURCE_PATH and HTSM_SCAN_PATH must be distinct',
+      })
+    } else if (
+      isNestedPath(resolvedSourcePath, resolvedDestinationPath) ||
+      isNestedPath(resolvedDestinationPath, resolvedSourcePath)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['HTSM_TRANSFER_SOURCE_PATH'],
+        message:
+          'HTSM_TRANSFER_SOURCE_PATH and HTSM_SCAN_PATH must not be nested',
+      })
+    }
+  })
+  .transform((env) => {
+    const sourcePath = env.HTSM_TRANSFER_SOURCE_PATH
+    const destinationPath = env.HTSM_SCAN_PATH
+
+    return {
+      auth: {
+        pin: env.HTSM_PIN,
+        sessionSecret: env.HTSM_SESSION_SECRET,
+        secure: env.HTSM_SECURE,
+      },
+      dbPath: env.HTSM_DB_PATH,
+      scanPath: destinationPath,
+      transfer: sourcePath
+        ? {
+            enabled: true,
+            sourcePath: realpathSync(sourcePath),
+            destinationPath: realpathSync(destinationPath!),
+            removeAfterDays: env.HTSM_TRANSFER_REMOVE_AFTER_DAYS ?? null,
+          }
+        : {
+            enabled: false,
+            sourcePath: null,
+            destinationPath: destinationPath ?? null,
+            removeAfterDays: null,
+          },
+      upload: {
+        url: env.VT_UPLOAD_URL,
+        type: env.VT_UPLOAD_FILE_TYPE,
+        userHandle: env.VT_UPLOAD_USER_HANDLE,
+        apiKey: env.VT_UPLOAD_API_KEY,
+      },
+    }
+  })
+
+export type Config = z.output<typeof environmentSchema>
+export type TransferConfig = Config['transfer']
 
 /** Parse raw environment strings into the application's typed configuration. */
 export function readConfig(env: NodeJS.ProcessEnv): Config {
-  const parsed = environmentSchema.parse(env)
-  return {
-    auth: {
-      pin: parsed.HTSM_PIN,
-      sessionSecret: parsed.HTSM_SESSION_SECRET,
-      secure: parsed.HTSM_SECURE,
-    },
-    dbPath: parsed.HTSM_DB_PATH,
-    scanPath: parsed.HTSM_SCAN_PATH,
-    transfer: {
-      sourcePath: parsed.HTSM_TRANSFER_SOURCE_PATH,
-      removeAfterDays: parsed.HTSM_TRANSFER_REMOVE_AFTER_DAYS,
-    },
-    upload: {
-      url: parsed.VT_UPLOAD_URL,
-      type: parsed.VT_UPLOAD_FILE_TYPE,
-      userHandle: parsed.VT_UPLOAD_USER_HANDLE,
-      apiKey: parsed.VT_UPLOAD_API_KEY,
-    },
-  }
+  return environmentSchema.parse(env)
 }
 
 let config: Config | undefined
@@ -107,80 +161,39 @@ export function getConfig(): Config {
   return config
 }
 
-function requireDirectory(name: string, path: string): string {
+function validateDirectory(
+  name: string,
+  path: string,
+  ctx: z.RefinementCtx,
+): string | undefined {
   let stat
   try {
     stat = statSync(path)
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
-    throw new Error(`${name} must exist and be a directory: ${detail}`)
+    ctx.addIssue({
+      code: 'custom',
+      path: [name],
+      message: `${name} must exist and be a directory: ${detail}`,
+    })
+    return undefined
   }
 
-  if (!stat.isDirectory()) throw new Error(`${name} must be a directory`)
+  if (!stat.isDirectory()) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [name],
+      message: `${name} must be a directory`,
+    })
+    return undefined
+  }
+
   return realpathSync(path)
 }
 
 function isNestedPath(parent: string, child: string): boolean {
   const result = relative(parent, child)
   return result !== '' && !result.startsWith('..') && !isAbsolute(result)
-}
-
-/** Resolve and validate the configuration used by managed transfers. */
-export function readTransferConfig(env?: NodeJS.ProcessEnv): TransferConfig {
-  const currentConfig = env ? readConfig(env) : getConfig()
-  const { sourcePath: configuredSourcePath, removeAfterDays } =
-    currentConfig.transfer
-
-  if (!configuredSourcePath) {
-    if (removeAfterDays !== undefined) {
-      throw new Error(
-        'HTSM_TRANSFER_REMOVE_AFTER_DAYS requires HTSM_TRANSFER_SOURCE_PATH',
-      )
-    }
-    return {
-      enabled: false,
-      sourcePath: null,
-      destinationPath: currentConfig.scanPath ?? null,
-      removeAfterDays: null,
-    }
-  }
-
-  if (!isAbsolute(configuredSourcePath)) {
-    throw new Error('HTSM_TRANSFER_SOURCE_PATH must be absolute')
-  }
-
-  const configuredDestinationPath = currentConfig.scanPath
-  if (!configuredDestinationPath) {
-    throw new Error('HTSM_SCAN_PATH is required when transfer source is set')
-  }
-
-  const sourcePath = requireDirectory(
-    'HTSM_TRANSFER_SOURCE_PATH',
-    configuredSourcePath,
-  )
-  const destinationPath = requireDirectory(
-    'HTSM_SCAN_PATH',
-    configuredDestinationPath,
-  )
-
-  if (sourcePath === destinationPath) {
-    throw new Error('HTSM_TRANSFER_SOURCE_PATH and HTSM_SCAN_PATH must be distinct')
-  }
-  if (
-    isNestedPath(sourcePath, destinationPath) ||
-    isNestedPath(destinationPath, sourcePath)
-  ) {
-    throw new Error(
-      'HTSM_TRANSFER_SOURCE_PATH and HTSM_SCAN_PATH must not be nested',
-    )
-  }
-
-  return {
-    enabled: true,
-    sourcePath,
-    destinationPath,
-    removeAfterDays: removeAfterDays ?? null,
-  }
 }
 
 export function getAuthConfig(): {

@@ -6,7 +6,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { authMiddleware } from '../server/auth-middleware'
-import { ensureWorkersStarted } from '../server/bootstrap'
 import {
   countFiles,
   getFilesForRun,
@@ -75,26 +74,22 @@ export const getRun = createServerFn({ method: 'GET' })
 
 /**
  * Queue every not-yet-uploaded file in a run (whole-run upload). Returns how many
- * files were newly queued. Ensures the uploader loop is running so they drain.
+ * files were newly queued. The startup plugin runs the uploader that drains them.
  */
 export const requestRunUpload = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator((data: unknown) => runInput.parse(data))
-  .handler(async ({ data }) => {
-    ensureWorkersStarted()
-    return { queued: requestUploadForRunRows(data.runId) }
-  })
+  .handler(async ({ data }) => ({
+    queued: requestUploadForRunRows(data.runId),
+  }))
 
 const requestUploadInput = z.object({ id: z.number().int().positive() })
 
 /**
  * Queue a file for upload. Returns whether a row changed (false if it was already
- * uploaded). Ensures the uploader loop is running so the queued file actually drains.
+ * uploaded). The startup plugin runs the uploader that drains the queue.
  */
 export const requestUpload = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator((data: unknown) => requestUploadInput.parse(data))
-  .handler(async ({ data }) => {
-    ensureWorkersStarted()
-    return { ok: requestUploadRow(data.id) }
-  })
+  .handler(async ({ data }) => ({ ok: requestUploadRow(data.id) }))

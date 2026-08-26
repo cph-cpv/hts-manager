@@ -81,7 +81,7 @@ test('creates the merged schema for a fresh database', async () => {
       { name: 'idx_jobs_target_kind_state', unique: 0 },
     ])
     assert.deepEqual(db.pragma('foreign_key_list(jobs)'), [])
-    assert.equal(claimJob(), undefined)
+    assert.equal(claimJob([]), undefined)
 
     const laterJobId = Number(
       db
@@ -102,13 +102,14 @@ test('creates the merged schema for a fresh database', async () => {
         .lastInsertRowid,
     )
 
-    const earlierJob = claimJob()!
+    const supportedKinds = ['example.earlier', 'example.later']
+    const earlierJob = claimJob(supportedKinds)!
     assert.equal(earlierJob.id, earlierJobId)
     assert.equal(earlierJob.state, 'running')
     assert.ok(earlierJob.started_at)
     updateJobState(earlierJob.id, 'complete')
 
-    const laterJob = claimJob()!
+    const laterJob = claimJob(supportedKinds)!
     assert.equal(laterJob.id, laterJobId)
     updateJobState(laterJob.id, 'complete')
 
@@ -133,7 +134,7 @@ test('creates the merged schema for a fresh database', async () => {
         state: 'waiting',
       },
     )
-    updateJobState(claimJob()!.id, 'complete')
+    updateJobState(claimJob(['example.enqueued'])!.id, 'complete')
 
     assert.throws(
       () => enqueueJob({ kind: ' ', payload: {} }),

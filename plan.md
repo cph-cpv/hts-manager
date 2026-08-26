@@ -91,7 +91,7 @@ src/
     scanner.ts         # background scan singleton + live scan state
     uploader.ts        # background upload singleton + live upload state
     status.ts          # combined status snapshot (scanner + uploader)
-    bootstrap.ts       # guarded ensureWorkersStarted() (scanner + uploader)
+    bootstrap.ts       # guarded startup for scanner, uploader, and job workers
   functions/
     auth.fn.ts         # login({pin}) / logout / me
     files.fn.ts        # listFiles({q,limit,offset}) / requestUpload({id})  (authMiddleware)
@@ -154,7 +154,7 @@ Add bin entry in `package.json` (`"hts-manager": "dist/cli.js"`) and scripts: `d
   - Loop: `claimNext()`; if none, wait ~3 s and repeat. If a row: `setUploading` + update state, build `form-data` with `fs.createReadStream(path)` as field `file`, `undici.request(VT_UPLOAD_URL, { method:'POST', query:{name,type}, headers:{ Authorization: Basic..., ...form.getHeaders() }, body: form })`. `201` → `markUploaded` (`uploaded=1, upload_status='uploaded', uploaded_at`). Otherwise `markError` (keep `upload_requested=1` for retry; exponential-ish backoff before re-claiming the same errored row).
   - Strictly one upload at a time (the loop is serial). On restart, an interrupted `uploading` row is re-claimed first and re-POSTed whole (Virtool has no resumable upload) — satisfies "resumes incomplete or next upload".
   - `queued`/`errors` counts come from cheap `COUNT(*)` DB queries so the indicator stays accurate even across restarts.
-- **Bootstrap (`bootstrap.ts`)** — `ensureWorkersStarted()`, guarded by `globalThis.__htsmWorkersStarted` so it runs exactly once per server process. Starts the **scanner** and the **uploader** loops (and the startup scan). Called from the root route's server loader / first authed fn; safe to call repeatedly.
+- **Bootstrap (`bootstrap.ts`)** — `ensureWorkersStarted()`, guarded by `globalThis.__htsmWorkersStarted` so it runs exactly once per server process. The Nitro startup plugin calls it after configuration validation and database migration to start the **scanner**, **uploader**, and enabled transfer job loops independently of request traffic.
 
 ### 7. Status function (`src/server/status.ts`, `functions/status.fn.ts`) ✅ done
 - `getStatus()` (authed server fn) returns a single snapshot: `{ scan: getScanState(), upload: getUploadState() }` plus aggregate counts (total files, uploaded, queued, missing) and `lastScanFinishedAt`.

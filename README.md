@@ -17,7 +17,7 @@ See [`plan.md`](./plan.md) for the original design and rationale.
 ## Stack
 
 TanStack Start (React 19, Router + Query), TypeScript, Vite, better-sqlite3,
-zod, undici + form-data, Tailwind CSS v4 + shadcn/ui. Package manager: pnpm.
+zod, undici, Tailwind CSS v4 + shadcn/ui. Package manager: pnpm.
 Node 24.
 
 ## Getting started
@@ -134,8 +134,9 @@ decompressed, so scanning is fast.
 ## Upload protocol
 
 A single `POST` to `VT_UPLOAD_URL` (no chunking, no server-side resume): HTTP
-Basic auth, `name`/`type` query params, `multipart/form-data` with field `file`,
-success = HTTP `201`. "Resume" therefore means re-POSTing an interrupted file
+Basic auth, `name`/`type` query params, and the raw file as an
+`application/octet-stream` request body with an explicit `Content-Length`.
+Success = HTTP `201`. "Resume" therefore means re-POSTing an interrupted file
 whole on restart.
 
 ## Project status

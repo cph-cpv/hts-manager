@@ -23,18 +23,19 @@ and config come from env vars.
 - **All metadata comes from the run-folder name + filename — no file peeking.** The **Illumina run-folder name** is the source of truth: a full name `230615_A00123_0456_BHGV7DSX3` yields date (`2023-06-15`), instrument (`A00123`), run number (`0456`), and flowcell (`BHGV7DSX3`); a stripped name `230615` yields only the date (instrument/run/flowcell null). Lane comes from the FASTQ **filename** (`..._L001_...` → `L001`). The slow gunzip-and-read-header peek is dropped — scanning is pure path parsing + `fs.stat` for size. mtime (filesystem **and** gzip-header) is rejected as a source: this data has been copied/reorganized, so neither reflects the run.
 - **Run folder gates indexing.** A file is indexed only if it lives under a directory whose name matches the run-folder pattern (`/^(\d{6})(_|$)/`, date calendar-validated). Files with no matching run-folder ancestor are **skipped, not indexed** — the user maintains the tree so run folders conform. `run_date` is therefore **NOT NULL**.
 
-## Verified facts (Virtool upload protocol, from github.com/virtool/uploader)
+## Verified facts (Virtool upload protocol)
 - Single `POST` to a full upload URL (no chunking, no server-side resume).
 - Auth: HTTP Basic — `Authorization: Basic base64(user_handle:api_key)`.
 - Query params: `name=<filename>`, `type=reads`.
-- Body: `multipart/form-data`, field name `file`.
+- Body: the raw file stream with `Content-Type: application/octet-stream` and
+  an explicit `Content-Length`.
 - Success = HTTP `201`. "Resume" therefore means re-POSTing an interrupted file whole.
 
 ## Tech stack
 - TanStack Start (React 19, TanStack Router + Query), TypeScript, Vite.
 - `better-sqlite3` (synchronous, no native-build surprises on Node 24) for SQLite.
 - `zod` for server-fn input validation.
-- `form-data` + `undici` for streaming multipart upload (avoids loading whole fastq into memory).
+- `undici` for streaming raw file uploads (avoids loading whole fastq into memory).
 - `commander` (or `node:util` parseArgs) for the CLI.
 - **Radix UI primitives + shadcn/ui** for all UI components (Button, Input, Badge, Table, Spinner, etc.). Tailwind CSS v4.
 - pnpm.
@@ -115,7 +116,7 @@ worker, auth, background uploader + worker bootstrap, status function). Next:
 
 ### 1. Scaffold ✅ done
 `npx @tanstack/cli@latest create` (TS, pnpm), strip demo content. Add deps:
-`better-sqlite3 zod form-data undici commander`, dev `@types/better-sqlite3`.
+`better-sqlite3 zod undici commander`, dev `@types/better-sqlite3`.
 Add bin entry in `package.json` (`"hts-manager": "dist/cli.js"`) and scripts: `dev`, `build`, `start`, `scan`.
 
 ### 2. DB layer (`src/db/db.ts`, `files.ts`, `runs.ts`, `queries.ts`) ✅ done
@@ -151,7 +152,7 @@ Add bin entry in `package.json` (`"hts-manager": "dist/cli.js"`) and scripts: `d
 
 ### 6. Background uploader + worker bootstrap (`src/server/uploader.ts`, `bootstrap.ts`) ✅ done
 - **Uploader (`uploader.ts`)** — a singleton loop plus live state `{ uploading, currentId, currentName, queued, errors }`:
-  - Loop: `claimNext()`; if none, wait ~3 s and repeat. If a row: `setUploading` + update state, build `form-data` with `fs.createReadStream(path)` as field `file`, `undici.request(VT_UPLOAD_URL, { method:'POST', query:{name,type}, headers:{ Authorization: Basic..., ...form.getHeaders() }, body: form })`. `201` → `markUploaded` (`uploaded=1, upload_status='uploaded', uploaded_at`). Otherwise `markError` (keep `upload_requested=1` for retry; exponential-ish backoff before re-claiming the same errored row).
+  - Loop: `claimNext()`; if none, wait ~3 s and repeat. If a row: `setUploading` + update state, stream `fs.createReadStream(path)` directly as the `undici.request` body with `Content-Type: application/octet-stream`, `Content-Length`, Basic auth, and the `name`/`type` query params. `201` → `markUploaded` (`uploaded=1, upload_status='uploaded', uploaded_at`). Otherwise `markError` (keep `upload_requested=1` for retry; exponential-ish backoff before re-claiming the same errored row).
   - Strictly one upload at a time (the loop is serial). On restart, an interrupted `uploading` row is re-claimed first and re-POSTed whole (Virtool has no resumable upload) — satisfies "resumes incomplete or next upload".
   - `queued`/`errors` counts come from cheap `COUNT(*)` DB queries so the indicator stays accurate even across restarts.
 - **Bootstrap (`bootstrap.ts`)** — `ensureWorkersStarted()`, guarded by `globalThis.__htsmWorkersStarted` so it runs exactly once per server process. The Nitro startup plugin calls it after configuration validation and database migration to start the **scanner**, **uploader**, and enabled transfer job loops independently of request traffic.
@@ -191,7 +192,7 @@ Add bin entry in `package.json` (`"hts-manager": "dist/cli.js"`) and scripts: `d
 2. Start the app pointed at the dir, e.g. `HTSM_DB_PATH=/tmp/htsm.db HTSM_SCAN_PATH=/tmp/reads HTSM_PIN=1234 HTSM_SESSION_SECRET=dev VT_UPLOAD_USER_HANDLE=... VT_UPLOAD_API_KEY=... pnpm dev`.
 3. Auth: wrong PIN rejected, correct PIN reaches the list.
 4. Scanner: the startup scan runs in-process — the **top-bar scanning indicator** shows progress then "Last scan: <time>". Two rows appear for `150106_NS500598_0004_AH2NH3BGXX`: one with `run_date = 2015-01-06`, instrument `NS500598`, run `0004`, flowcell `AH2NH3BGXX`, lane `L001`; the other with the same run metadata but `lane = null` (the merged file). The date-only row shows `run_date = 2023-06-16`, lane `L002`, and null instrument/run/flowcell. The loose `orphan.fastq.gz` is **not** indexed. Click **Scan now** → indicator re-activates; with no new files it reports "0 added". Delete a file, **Scan now** again → its row flagged `missing` and drops from the default list.
-5. Upload: search filters by name; click **Upload** → row status goes `queued → uploading → uploaded` while the **top-bar upload indicator** shows the current file + queue depth. Point `VT_UPLOAD_URL` at a throwaway local endpoint (a tiny script returning 201) to validate the multipart POST shape (`name`/`type` query, Basic auth, `file` field) before touching the real instance; then run once against `preview.virtool.ca` with real creds.
+5. Upload: search filters by name; click **Upload** → row status goes `queued → uploading → uploaded` while the **top-bar upload indicator** shows the current file + queue depth. Point `VT_UPLOAD_URL` at a throwaway local endpoint (a tiny script returning 201) to validate the raw request body, `Content-Type`/`Content-Length`, `name`/`type` query, and Basic auth before touching the real instance; then run once against `preview.virtool.ca` with real creds.
 6. Restart the server mid-upload → confirm the interrupted file re-uploads and ends `uploaded`; already-uploaded files are not re-sent.
 7. Optional headless check: `HTSM_DB_PATH=/tmp/htsm.db pnpm scan /tmp/reads` prints the same add/skip/missing summary via the shared core.
 

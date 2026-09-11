@@ -67,6 +67,8 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
   legacy.close()
 
   process.env.HTSM_DB_PATH = databasePath
+  process.env.HTSM_PIN = 'test'
+  process.env.HTSM_SESSION_SECRET = 'test-session-secret'
 
   const { getDb, migrateDatabase } = await import('../../src/db/db')
   const { claimJob, updateJobState } = await import('../../src/db/jobs')
@@ -76,6 +78,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
     markRunRemoved,
     markRunTransferred,
     queueDiscoveryJob,
+    queueRunAnalysisCopyJob,
     queueRunCopyJob,
     queueRunRemovalJob,
     upsertDetectedRun,
@@ -91,7 +94,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
       db
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all(),
-      [{ version: 1 }, { version: 2 }, { version: 3 }],
+      [{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }],
     )
     assert.deepEqual(db.pragma('foreign_key_check'), [])
 
@@ -202,13 +205,13 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
       () => markRunReady(detected.id),
       /cannot transition run .* from ready to ready/,
     )
-    queueDiscoveryJob()
-    queueDiscoveryJob()
+    await queueDiscoveryJob()
+    await queueDiscoveryJob()
     const discovery = claimJob(['discover'])!
     assert.equal(discovery.kind, 'discover')
     assert.equal(discovery.target_type, null)
     assert.equal(discovery.target_id, null)
-    queueDiscoveryJob()
+    await queueDiscoveryJob()
     assert.deepEqual(
       db
         .prepare("SELECT COUNT(*) AS count FROM jobs WHERE kind = 'discover'")
@@ -217,7 +220,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
     )
     updateJobState(discovery.id, 'complete')
 
-    queueDiscoveryJob()
+    await queueDiscoveryJob()
     const nextDiscovery = claimJob(['discover'])!
     assert.notEqual(nextDiscovery.id, discovery.id)
     updateJobState(nextDiscovery.id, 'complete')
@@ -232,7 +235,7 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
       { transfer_status: 'ready' },
     )
 
-    const failedCopy = claimJob(['copy'])!
+    const failedCopy = claimJob(['copy-run'])!
     assert.equal(failedCopy.id, copy.id)
     assert.equal(getRunById(detected.id)?.transfer_activity, 'copying')
     updateJobState(failedCopy.id, 'error', 'copy failed')
@@ -243,17 +246,29 @@ test('migrates existing runs and enforces the stable transfer lifecycle', async 
     )
 
     queueRunCopyJob(detected.id)
-    const completedCopy = claimJob(['copy'])!
+    const completedCopy = claimJob(['copy-run'])!
     updateJobState(completedCopy.id, 'complete')
     assert.deepEqual(
       db.prepare('SELECT transfer_status FROM runs WHERE id = ?').get(detected.id),
       { transfer_status: 'ready' },
+    )
+    assert.throws(
+      () => queueRunAnalysisCopyJob(detected.id),
+      /transfer status transferred/,
     )
     markRunTransferred(detected.id)
     assert.deepEqual(
       db.prepare('SELECT transfer_status FROM runs WHERE id = ?').get(detected.id),
       { transfer_status: 'transferred' },
     )
+
+    const analysisCopy = queueRunAnalysisCopyJob(detected.id)
+    assert.equal(queueRunAnalysisCopyJob(detected.id).id, analysisCopy.id)
+    const runningAnalysisCopy = claimJob(['copy-analysis'])!
+    assert.equal(runningAnalysisCopy.id, analysisCopy.id)
+    assert.equal(getRunById(detected.id)?.transfer_activity, 'copying')
+    updateJobState(runningAnalysisCopy.id, 'error', 'analysis copy failed')
+    assert.equal(getRunById(detected.id)?.transfer_status, 'transferred')
 
     queueRunRemovalJob(detected.id)
     const failedRemoval = claimJob(['remove'])!

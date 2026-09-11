@@ -3,43 +3,109 @@ import {
   claimJob,
   type JobKind,
   type JobRow,
+  failInterruptedJobs,
   updateJobState,
 } from '../db/jobs'
-import { queueDiscoveryJob } from '../db/transfer'
+import {
+  queueDiscoveryJob,
+  queueReadyRunCopies,
+} from '../db/transfer'
+import { queueScheduledScanJob } from '../db/scan-jobs'
 import { getConfig, type Config } from './config'
 import { discoverSourceRuns } from './discovery'
+import {
+  handleCopyAnalysisJob,
+  queueReadyRunAnalysisCopies,
+} from './copy-analysis'
+import { handleCopyRunJob } from './copy-run'
+import { handleScanJob } from './scanner'
 
-export type JobSpawner = () => void | Promise<void>
+export type JobSpawner = () => Promise<unknown>
 
-export type JobHandler = (job: JobRow) => void | Promise<void>
+export type JobHandler = (job: JobRow) => Promise<void>
 
-export type JobSpawnerRegistry = Readonly<
-  Partial<Record<JobKind, JobSpawner>>
->
+type JobRegistration = {
+  spawner: JobSpawner
+  handler: JobHandler
+}
 
-export type JobHandlerRegistry = Readonly<
-  Partial<Record<JobKind, JobHandler>>
->
+/** Paired job spawners and handlers registered as one atomic operation. */
+export class JobRegistry {
+  readonly #registrations = new Map<JobKind, JobRegistration>()
 
-export type JobRegistries = {
-  spawners: JobSpawnerRegistry
-  handlers: JobHandlerRegistry
+  get kinds(): readonly JobKind[] {
+    return [...this.#registrations.keys()]
+  }
+
+  get size(): number {
+    return this.#registrations.size
+  }
+
+  /** Register all behavior required to spawn and execute one job kind. */
+  register(
+    kind: JobKind,
+    spawner: JobSpawner,
+    handler: JobHandler,
+  ): void {
+    if (this.#registrations.has(kind)) {
+      throw new Error(`job kind ${kind} is already registered`)
+    }
+
+    this.#registrations.set(kind, { spawner, handler })
+  }
+
+  /** Return all registered spawners in registration order. */
+  getSpawners(): readonly [JobKind, JobSpawner][] {
+    return [...this.#registrations].map(
+      ([kind, registration]) => [kind, registration.spawner],
+    )
+  }
+
+  /** Return the handler paired with a registered job kind. */
+  getHandler(kind: JobKind): JobHandler {
+    const registration = this.#registrations.get(kind)
+    if (!registration) {
+      throw new Error(`job kind ${kind} is not registered`)
+    }
+    return registration.handler
+  }
 }
 
 /** Build matching spawners and handlers for the jobs enabled at startup. */
-export function createJobRegistries(config: Config): JobRegistries {
-  const spawners: Partial<Record<JobKind, JobSpawner>> = {}
-  const handlers: Partial<Record<JobKind, JobHandler>> = {}
+export function createJobRegistry(config: Config): JobRegistry {
+  const registry = new JobRegistry()
+  const { scanPath } = config
   const { enabled, sourcePath } = config.transfer
 
-  if (enabled && sourcePath) {
-    spawners.discover = queueDiscoveryJob
-    handlers.discover = async () => {
-      await discoverSourceRuns(sourcePath)
-    }
+  if (scanPath) {
+    registry.register(
+      'scan',
+      queueScheduledScanJob,
+      () => handleScanJob(scanPath),
+    )
   }
 
-  return { spawners, handlers }
+  if (enabled && sourcePath) {
+    registry.register(
+      'copy-run',
+      queueReadyRunCopies,
+      (job) => handleCopyRunJob(job, config.transfer),
+    )
+    registry.register(
+      'copy-analysis',
+      () => queueReadyRunAnalysisCopies(config.transfer),
+      (job) => handleCopyAnalysisJob(job, config.transfer),
+    )
+    registry.register(
+      'discover',
+      queueDiscoveryJob,
+      async () => {
+        await discoverSourceRuns(sourcePath)
+      },
+    )
+  }
+
+  return registry
 }
 
 /** Fixed cadence for spawning and checking for newly queued work. */
@@ -54,10 +120,9 @@ function errorMessage(error: unknown): string {
 
 /** Invoke every registered spawner once without letting one failure block another. */
 export async function runJobSpawners(
-  spawners: JobSpawnerRegistry,
+  registry: JobRegistry,
 ): Promise<void> {
-  const spawnerEntries = Object.entries(spawners) as [JobKind, JobSpawner][]
-  for (const [kind, spawn] of spawnerEntries) {
+  for (const [kind, spawn] of registry.getSpawners()) {
     try {
       await spawn()
     } catch (error) {
@@ -71,16 +136,12 @@ export async function runJobSpawners(
  * Returns whether a job was processed so the runner can drain the queue.
  */
 export async function runNextJob(
-  handlers: JobHandlerRegistry,
+  registry: JobRegistry,
 ): Promise<boolean> {
-  const handlerEntries = Object.entries(handlers) as [JobKind, JobHandler][]
-  const job = claimJob(handlerEntries.map(([kind]) => kind))
+  const job = claimJob(registry.kinds)
   if (!job) return false
 
-  const handler = handlerEntries.find(([kind]) => kind === job.kind)?.[1]
-  if (!handler) {
-    throw new Error(`claimed job ${job.id} without a handler for ${job.kind}`)
-  }
+  const handler = registry.getHandler(job.kind)
 
   try {
     await handler(job)
@@ -98,28 +159,31 @@ function schedule(nextCycle: () => Promise<void>): void {
   timer.unref()
 }
 
-async function spawnerLoop(spawners: JobSpawnerRegistry): Promise<void> {
-  await runJobSpawners(spawners)
-  schedule(() => spawnerLoop(spawners))
+async function spawnerLoop(registry: JobRegistry): Promise<void> {
+  await runJobSpawners(registry)
+  schedule(() => spawnerLoop(registry))
 }
 
-async function runnerLoop(handlers: JobHandlerRegistry): Promise<void> {
+async function runnerLoop(registry: JobRegistry): Promise<void> {
   try {
-    while (await runNextJob(handlers)) {
+    while (await runNextJob(registry)) {
       // Drain all currently waiting supported jobs serially before polling again.
     }
   } catch (error) {
     // Database/state-transition failures should not permanently stop the worker.
     console.error('job runner failed', error)
   }
-  schedule(() => runnerLoop(handlers))
+  schedule(() => runnerLoop(registry))
 }
 
 /** Start the spawner and universal runner loops once for this server process. */
-export function startJobWorkers(registries?: JobRegistries): void {
+export function startJobWorkers(registry?: JobRegistry): void {
   if (started) return
-  const { spawners, handlers } = registries ?? createJobRegistries(getConfig())
+  const jobRegistry = registry ?? createJobRegistry(getConfig())
+  failInterruptedJobs()
   started = true
-  if (Object.keys(spawners).length) void spawnerLoop(spawners)
-  if (Object.keys(handlers).length) void runnerLoop(handlers)
+  if (jobRegistry.size) {
+    void spawnerLoop(jobRegistry)
+    void runnerLoop(jobRegistry)
+  }
 }

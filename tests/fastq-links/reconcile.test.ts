@@ -39,6 +39,7 @@ test('creates NextSeq 500 links and persistent run directories', async () => {
   makeFile(join(fastqDirectory, 'sample.fq.gz'))
   makeFile(join(fastqDirectory, 'notes.txt'))
   makeFile(join(fastqDirectory, 'nested', 'ignored.fastq.gz'))
+  makeFile(join(source, '.htsm-analysis-1-alpha.partial', 'fastq', 'staged.fastq.gz'))
   makeDirectory(join(source, 'empty-run'))
   makeFile(join(source, 'loose.fastq.gz'))
 

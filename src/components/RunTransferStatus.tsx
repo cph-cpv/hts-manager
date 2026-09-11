@@ -31,6 +31,8 @@ export function RunTransferStatusBadge({
   }
 
   switch (status) {
+    case 'error':
+      return <Badge variant="destructive">Error</Badge>
     case 'detected':
       return <Badge variant="secondary">Detected</Badge>
     case 'ready':

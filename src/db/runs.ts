@@ -9,6 +9,7 @@ export type RunTransferStatus =
   | 'ready'
   | 'transferred'
   | 'removed'
+  | 'error'
 
 /** Row shape of the `runs` table. */
 export type RunRow = {
@@ -85,7 +86,7 @@ export function listRuns(): RunSummary[] {
                     SELECT 1 FROM jobs
                      WHERE target_type = 'run'
                        AND target_id = r.id
-                       AND kind = 'copy'
+                       AND kind IN ('copy-run', 'copy-analysis')
                        AND state = 'running'
                   ) THEN 'copying'
                   ELSE NULL
@@ -117,7 +118,7 @@ export function getRunById(
                   SELECT 1 FROM jobs
                    WHERE target_type = 'run'
                      AND target_id = run.id
-                     AND kind = 'copy'
+                     AND kind IN ('copy-run', 'copy-analysis')
                      AND state = 'running'
                 ) THEN 'copying'
                 ELSE NULL

@@ -3,16 +3,16 @@
 An internal tool for managing Illumina sequencing run output and getting reads
 into Virtool. Point it at a directory of Illumina run folders; it indexes the
 `*.fastq.gz` / `*.fq.gz` files (name, size, and run metadata parsed from the
-run-folder name + filename), and presents a searchable list behind a shared PIN.
-Each row has a one-click **Upload** button; a background worker uploads queued
-files one at a time to Virtool, survives restarts, and marks each file
-`uploaded` on success.
+run-folder name + filename), and presents searchable file and run views behind a
+shared PIN. Files can be downloaded or queued individually for upload, and all
+currently indexed files in a run can be queued together. A background worker
+uploads queued files one at a time to Virtool, survives restarts, and marks each
+file `uploaded` on success. `Undetermined_*` files are hidden from the file view
+by default and can be shown with its **Undetermined** toggle.
 
 Originally scoped as a short-lived internal tool, hts-manager is now on a path
 to become a production service for the sequencing pipeline — see
 [Roadmap](#roadmap) for where it's headed.
-
-See [`plan.md`](./plan.md) for the original design and rationale.
 
 ## Stack
 
@@ -31,9 +31,10 @@ pnpm dev               # http://localhost:3000
 pnpm build && pnpm start
 ```
 
-On boot the app scans `HTSM_SCAN_PATH` once, then keeps the file list and the two
-top-bar indicators (scanning / upload activity) live; **Scan now** re-scans on
-demand.
+Scans of `HTSM_SCAN_PATH` run as persisted background jobs. When configured, the
+app queues a scan on boot if none has finished in the last hour and continues
+that hourly schedule afterward. The top bar shows queued/scanning and upload
+activity; **Scan now** queues a scan on demand.
 
 ### Disposable Docker test environment
 
@@ -67,7 +68,7 @@ the `VT_UPLOAD_*` credentials are only validated once an upload actually runs.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `HTSM_SCAN_PATH` | No | _(unset)_ | Directory of Illumina run folders to scan. If unset, the startup scan is skipped and the file list stays empty until set. |
+| `HTSM_SCAN_PATH` | No | _(unset)_ | Directory of Illumina run folders to scan. If unset, no scans are scheduled; existing database records remain available. |
 | `HTSM_FASTQ_SYMLINK_PATH` | No | _(unset)_ | Absolute destination for the reconciled FASTQ symlink tree. Set to `/mnt/raw/fastq` in production. Requires `HTSM_SCAN_PATH`. |
 | `HTSM_DB_PATH` | No | `./hts-manager.db` | Path to the better-sqlite3 database file. |
 
@@ -92,35 +93,84 @@ removed as layouts change. Reconciliation refuses to modify a tree containing
 regular files or other unexpected entries, preserving them and logging an
 error for the operator to resolve.
 
-### Transfer from sequencer output (work in progress)
+### Transfer from sequencer output
 
-hts-manager is being developed to provide automated transfer of completed
-Illumina run folders from a sequencer-output directory to `HTSM_SCAN_PATH`, the
-central storage directory it scans for sequencing data. Set
+hts-manager provides automated transfer of completed Illumina run folders from
+a sequencer-output directory to `HTSM_SCAN_PATH`, the central storage directory
+it scans for sequencing data. Set
 `HTSM_TRANSFER_SOURCE_PATH` to the sequencer-output directory to configure the
 source. hts-manager discovers immediate child directories with valid Illumina
 run-folder names and registers them for managed transfer. A run becomes ready
 when it has an exact, root-level regular file named `CopyComplete.txt`; other
-completion metadata and nested markers do not qualify. A later implementation
-will copy ready run folders into `HTSM_SCAN_PATH`, where their FASTQ files can
-be indexed and made available for upload.
+completion metadata and nested markers do not qualify. Ready runs are copied
+automatically into `HTSM_SCAN_PATH`, preserving their original folder names and
+directory trees except the root `Analysis/` folder. Completed analysis trees are
+copied separately and a scan then indexes their FASTQ files for upload.
 
-Source run folders are retained by default. Set
-`HTSM_TRANSFER_REMOVE_AFTER_DAYS` to remove a source run after it has been
-successfully copied and retained for the configured number of days. For
-example, `365` retains source data for one year; `0` allows removal immediately
-after a successful copy.
+Source run folders are retained. `HTSM_TRANSFER_REMOVE_AFTER_DAYS` reserves
+retention configuration for the later source-removal implementation; copying
+never deletes source data.
 
 Both directories must already exist, the source must be an absolute path, and
 the source and destination must be distinct and not nested inside each other.
-Discovery and readiness detection run automatically when transfer is enabled.
-Copying and source removal are not available yet, so configuring these
-variables does not currently move or delete files.
+Discovery, readiness detection, and copying run automatically when transfer is
+enabled. Source removal is not implemented.
+
+Copying runs serially in the background using **rsync**, which is included in
+the Docker image. Install rsync on the host when running outside Docker.
+Base-run copies and run-scoped analysis reconciliations use separate `copy-run`
+and `copy-analysis` jobs. Temporary filesystem/NFS failures and rsync transfer
+failures retry on the next polling pass; rsync's partial-transfer errors can
+also indicate issues such as permissions, so repeated failures require
+inspecting the error message. A process restart marks interrupted job attempts
+as failed, then queues fresh work. If the prior attempt had already published
+its base-run directory, the new job verifies that directory against the source
+and records the run as transferred. Otherwise, it discards the
+application-owned staging directory and starts the entire copy again.
+
+Runs are the transfer and job target. For each transferred run with pending
+analysis output, one `copy-analysis` job attempts every ready immediate
+`<run>/Analysis/<analysis>/` directory. An exact, regular `report.html` at an
+analysis root is the sole readiness indicator, with no stability delay. The
+analysis job spawner repeats this check, so analyses that arrive later are
+copied by a later job. A published destination analysis directory records
+completion; it is not synchronized again if its source changes.
+
+Reserved `.htsm-copy-<run-id>.partial` and
+`.htsm-analysis-<run-id>-<analysis>.partial`
+directories under `HTSM_SCAN_PATH` hold unfinished copies. Both file scanning
+and FASTQ symlink reconciliation ignore these directories. Successful copies
+are verified and published by renaming the whole staging directory. The
+application refuses publication when the destination already exists. Staging
+and the final destination must be on the same filesystem; cross-mount
+publication fails without a copying fallback. An existing base-run folder is
+accepted only when its inventory matches the source (excluding `Analysis/`);
+otherwise it is a conflict. An existing analysis directory is treated as
+already published; the parent `Analysis/` folder may exist.
+
+Destination conflicts, verification failures, and unsupported source entries
+(including symbolic links) put the base-run transfer in `Error` and stop its
+automatic attempts. An analysis failure does not change the base run's status
+or block sibling analyses from being copied. The run-scoped job records an
+error after attempting every ready analysis, and unpublished analyses retry in
+a fresh job. Analysis verification mismatches retry from scratch, since
+`report.html` can precede the final writes. Recovery controls for base-run
+errors are planned in CPH-73. Rediscovery and restarting do not reset errored
+runs.
+
+Verification compares relative paths, entry types, and file sizes, not file
+contents. Same-size corruption is not detected; checksum verification is
+deferred to source removal. The base-run inventory excludes `Analysis/`, so
+ongoing analyses cannot invalidate its verification. An analysis job that
+publishes at least one new analysis requests a scan job. Existing waiting scan
+requests are reused, and a failure to queue the scan is logged without changing
+the analysis job result; scheduled scans still provide eventual indexing. Run
+only one hts-manager server process against a database.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `HTSM_TRANSFER_SOURCE_PATH` | No | — | Absolute source directory containing sequencer-side run folders. Setting it enables managed transfer. |
-| `HTSM_TRANSFER_REMOVE_AFTER_DAYS` | No | _(unset)_ | Days to retain transferred source files. Unset retains them indefinitely; `0` allows immediate removal after safety checks. |
+| `HTSM_TRANSFER_REMOVE_AFTER_DAYS` | No | _(unset)_ | Reserved retention setting for future source removal; currently no source files are deleted. |
 
 ### Virtool upload target
 
@@ -167,23 +217,20 @@ whole on restart.
 
 ## Project status
 
-Feature-complete against [`plan.md`](./plan.md): DB layer, run-folder/filename
-parsing, in-process scanner + uploader workers, single-PIN auth, status/file
-server functions, and the file-list UI with top-bar indicators. This covers the
-original short-lived-tool scope; active development has moved on to the
-production-hardening work tracked in [Roadmap](#roadmap).
+The application includes run-folder and filename parsing, persisted scanning
+and transfer jobs, automatic copying of completed runs and analyses, optional
+FASTQ symlink reconciliation, single-PIN authentication, serial Virtool
+uploads, file downloads, and file/run views with transfer and worker status.
+Source removal, automatic upload tagging, and other production-hardening work
+remain on the [Roadmap](#roadmap).
 
 ## Roadmap
 
 Planned as hts-manager grows from a stopgap script into a production service:
 
-- **Active run visibility** — surface in-progress sequencing runs, not just
-  completed ones.
-- **Automatic handling of done runs** — sequencers write to a target
-  directory; hts-manager detects completed runs and copies them to long-term
-  storage automatically.
-- **Whole-run upload to Virtool** — upload a run's files as a unit, with the
-  ability to tag a run for auto-upload before it finishes sequencing.
+- **Automatic whole-run upload to Virtool** — allow a run to be tagged for
+  upload before it finishes sequencing. Manual whole-run upload of currently
+  indexed files is already available.
 - **`Undetermined` file exclusion from upload** — excluded by default, with a
   per-run opt-out.
 - **Samplesheet parsing** — read samplesheets from run folders when present,

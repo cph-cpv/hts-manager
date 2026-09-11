@@ -1,15 +1,17 @@
 /**
- * Background scanner singleton. Holds the live scan state polled by the status
- * function and exposes `requestScan()` to kick off a scan (on server startup and
- * from the "Scan now" button). At most one scan runs at a time; a second request
- * while one is in flight is a no-op. Errors are captured into the state, never
- * thrown to the caller. See plan.md (step 4).
+ * Scan job handler and live progress state polled by the status function.
  */
+import {
+  isScanJobWaiting,
+  queueRequestedScanJob,
+} from '../db/scan-jobs'
 import { runScan, type ScanResult } from '../scan/scan'
 import { getConfig } from './config'
 
 /** Snapshot of the scanner, surfaced through `getStatus`. */
-export interface ScanState {
+export type ScanState = {
+  /** A scan is persisted and waiting for the serial job worker. */
+  queued: boolean
   scanning: boolean
   startedAt: string | null
   finishedAt: string | null
@@ -23,7 +25,7 @@ export interface ScanState {
   error: string | null
 }
 
-let state: ScanState = {
+let state: Omit<ScanState, 'queued'> = {
   scanning: false,
   startedAt: null,
   finishedAt: null,
@@ -33,31 +35,36 @@ let state: ScanState = {
   error: null,
 }
 
-/** Why a `requestScan()` call did not start a scan. */
-export type ScanSkipReason = 'already-running' | 'no-scan-path'
+/** Why a `requestScan()` call did not add a scan job. */
+export type ScanSkipReason = 'already-waiting' | 'no-scan-path'
 
 /** Outcome of a `requestScan()` call. */
-export interface RequestScanResult {
-  started: boolean
+export type RequestScanResult = {
+  queued: boolean
   reason?: ScanSkipReason
 }
 
 /** Current scanner snapshot (a copy, so callers can't mutate internal state). */
 export function getScanState(): ScanState {
-  return { ...state }
+  return { ...state, queued: isScanJobWaiting() }
 }
 
 /**
- * Start a scan of `HTSM_SCAN_PATH` unless one is already running (or no scan path
- * is configured). Returns immediately; the scan runs in the background and
- * updates {@link getScanState}.
+ * Persist a user-requested scan of `HTSM_SCAN_PATH`. A running scan may have one
+ * follow-up waiting, but repeated requests never add more waiting jobs.
  */
 export function requestScan(): RequestScanResult {
-  if (state.scanning) return { started: false, reason: 'already-running' }
-
   const root = getConfig().scanPath
-  if (!root) return { started: false, reason: 'no-scan-path' }
+  if (!root) return { queued: false, reason: 'no-scan-path' }
 
+  const result = queueRequestedScanJob()
+  return result.queued
+    ? { queued: true }
+    : { queued: false, reason: 'already-waiting' }
+}
+
+/** Run one claimed scan job and expose its live progress. */
+export async function handleScanJob(root: string): Promise<void> {
   state = {
     scanning: true,
     startedAt: new Date().toISOString(),
@@ -68,11 +75,6 @@ export function requestScan(): RequestScanResult {
     error: null,
   }
 
-  void runScanJob(root)
-  return { started: true }
-}
-
-async function runScanJob(root: string): Promise<void> {
   try {
     const result = await runScan(root, ({ processed, added }) => {
       state = { ...state, processed, added }
@@ -86,11 +88,13 @@ async function runScanJob(root: string): Promise<void> {
       error: null,
     }
   } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
     state = {
       ...state,
       scanning: false,
       finishedAt: new Date().toISOString(),
-      error: err instanceof Error ? err.message : String(err),
+      error,
     }
+    throw err
   }
 }

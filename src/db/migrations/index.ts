@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { initializeSchema } from './001-initialize-schema'
 import { addRunTransferSchema } from './002-add-run-transfer-schema'
 import { addJobsSchema } from './003-add-jobs-schema'
+import { addRunErrorStatus } from './004-add-run-error-status'
 import type { Migration } from './types'
 import { nowIso } from '../utils'
 
@@ -9,6 +10,7 @@ const migrations: Migration[] = [
   initializeSchema,
   addRunTransferSchema,
   addJobsSchema,
+  addRunErrorStatus,
 ]
 
 function validateRegistry(): void {

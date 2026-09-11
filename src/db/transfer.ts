@@ -18,12 +18,13 @@ function requireMessage(value: string, name: string): void {
 export const RUN_TRANSFER_STATUS_TRANSITIONS = {
   manual: [],
   detected: ['ready'],
-  ready: ['transferred'],
+  ready: ['transferred', 'error'],
+  error: [],
   transferred: ['removed'],
   removed: [],
 } as const satisfies Record<RunTransferStatus, readonly RunTransferStatus[]>
 
-type RunTransferOperation = 'copy' | 'remove'
+type RunTransferOperation = 'copy-run' | 'remove'
 
 type RunTransferOperationRule = {
   requiredRunStatus: RunTransferStatus
@@ -33,7 +34,7 @@ type RunTransferOperationRule = {
 
 /** How each run transfer operation relates to the durable run lifecycle. */
 const RUN_TRANSFER_OPERATION_RULES = {
-  copy: {
+  'copy-run': {
     requiredRunStatus: 'ready',
     completedRunStatus: 'transferred',
     activity: 'copying',
@@ -58,9 +59,9 @@ const TRANSFER_ACTIVITY_SQL = `
       SELECT 1 FROM jobs
        WHERE target_type = 'run'
          AND target_id = run.id
-         AND kind = 'copy'
+         AND kind IN ('copy-run', 'copy-analysis')
          AND state = 'running'
-    ) THEN '${RUN_TRANSFER_OPERATION_RULES.copy.activity}'
+    ) THEN '${RUN_TRANSFER_OPERATION_RULES['copy-run'].activity}'
     ELSE NULL
   END AS transfer_activity
 `
@@ -110,8 +111,22 @@ export function markRunReady(id: number): void {
 export function markRunTransferred(id: number): void {
   transitionRunTransferStatus(
     id,
-    RUN_TRANSFER_OPERATION_RULES.copy.completedRunStatus,
+    RUN_TRANSFER_OPERATION_RULES['copy-run'].completedRunStatus,
   )
+}
+
+/** Transferred runs without an active analysis reconciliation job. */
+export function listAnalysisCopyEligibleRuns(): RunRow[] {
+  return getDb().prepare(`
+    SELECT * FROM runs
+    WHERE transfer_status = 'transferred' AND source_path IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM jobs WHERE kind = 'copy-analysis'
+          AND target_type = 'run' AND target_id = runs.id
+          AND state IN ('waiting', 'running')
+      )
+    ORDER BY id
+  `).all() as RunRow[]
 }
 
 /** Mark a transferred run's source as successfully removed. */
@@ -197,7 +212,7 @@ function requireRunWithSourcePath(runId: number): RunRow {
 }
 
 /** Queue a discovery pass unless one is already waiting or running. */
-export function queueDiscoveryJob(): void {
+export async function queueDiscoveryJob(): Promise<void> {
   const db = getDb()
   db.transaction(() => {
     const active = db
@@ -218,19 +233,48 @@ export function queueDiscoveryJob(): void {
   })()
 }
 
-/** Queue destination copying for a ready run. */
+/** Queue base-run destination copying for a ready run. */
 export function queueRunCopyJob(runId: number): JobRow {
-  const run = requireRunWithSourcePath(runId)
-  if (
-    run.transfer_status !==
-    RUN_TRANSFER_OPERATION_RULES.copy.requiredRunStatus
-  ) {
-    throw new Error(
-      `copy jobs require a run with transfer status ${RUN_TRANSFER_OPERATION_RULES.copy.requiredRunStatus}`,
-    )
-  }
+  const db = getDb()
+  return db.transaction(() => {
+    const run = requireRunWithSourcePath(runId)
+    if (run.transfer_status !== 'ready') {
+      throw new Error('copy-run jobs require a run with transfer status ready')
+    }
+    const active = db
+      .prepare(`
+        SELECT * FROM jobs WHERE kind = 'copy-run' AND target_type = 'run'
+          AND target_id = ? AND state IN ('waiting', 'running')
+        ORDER BY id LIMIT 1
+      `)
+      .get(runId) as JobRow | undefined
+    return active ?? enqueueJob({
+      kind: 'copy-run', target: { type: 'run', id: runId },
+    })
+  })()
+}
 
-  return enqueueJob({ kind: 'copy', target: { type: 'run', id: runId } })
+/** Queue run-scoped copying for analyses belonging to a transferred run. */
+export function queueRunAnalysisCopyJob(runId: number): JobRow {
+  const db = getDb()
+  return db.transaction(() => {
+    const run = requireRunWithSourcePath(runId)
+    if (run.transfer_status !== 'transferred') {
+      throw new Error(
+        'copy-analysis jobs require a run with transfer status transferred',
+      )
+    }
+    const active = db
+      .prepare(`
+        SELECT * FROM jobs WHERE kind = 'copy-analysis' AND target_type = 'run'
+          AND target_id = ? AND state IN ('waiting', 'running')
+        ORDER BY id LIMIT 1
+      `)
+      .get(runId) as JobRow | undefined
+    return active ?? enqueueJob({
+      kind: 'copy-analysis', target: { type: 'run', id: runId },
+    })
+  })()
 }
 
 /** Queue source removal for a transferred run. */
@@ -281,4 +325,24 @@ export function listProblemTransferRuns(limit = 20): TransferRunSummary[] {
         LIMIT ?`,
     )
     .all(limit) as TransferRunSummary[]
+}
+
+/** Stop automatic copying until an operator resolves a permanent failure. */
+export function markRunCopyError(runId: number): void {
+  transitionRunTransferStatus(runId, 'error')
+}
+
+export function listCopyEligibleRuns(): RunRow[] {
+  return getDb().prepare(`
+    SELECT * FROM runs WHERE transfer_status = 'ready' AND source_path IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM jobs WHERE kind = 'copy-run' AND target_type = 'run'
+          AND target_id = runs.id AND state IN ('waiting', 'running')
+      )
+    ORDER BY id
+  `).all() as RunRow[]
+}
+
+export async function queueReadyRunCopies(): Promise<void> {
+  for (const run of listCopyEligibleRuns()) queueRunCopyJob(run.id)
 }

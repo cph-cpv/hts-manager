@@ -20,6 +20,8 @@ test('discovers source runs and retries runtime failures through jobs', async ()
   mkdirSync(destinationRoot)
 
   process.env.HTSM_DB_PATH = databasePath
+  process.env.HTSM_PIN = 'test'
+  process.env.HTSM_SESSION_SECRET = 'test-session-secret'
   process.env.HTSM_TRANSFER_SOURCE_PATH = sourceRoot
   process.env.HTSM_SCAN_PATH = destinationRoot
 
@@ -77,13 +79,25 @@ test('discovers source runs and retries runtime failures through jobs', async ()
   const { getRunByFolder } = await import('../../src/db/runs')
   const { discoverSourceRuns } = await import('../../src/server/discovery')
   const {
-    createJobRegistries,
+    createJobRegistry,
+    JobRegistry,
     runJobSpawners,
     runNextJob,
   } = await import('../../src/server/job-worker')
 
   const { getConfig } = await import('../../src/server/config')
-  const { spawners, handlers } = createJobRegistries(getConfig())
+  const registrations = createJobRegistry(getConfig())
+  // This suite owns discovery behavior; copy execution has its own integration tests.
+  const discoveryRegistry = new JobRegistry()
+  const discoverySpawner = registrations
+    .getSpawners()
+    .find(([kind]) => kind === 'discover')?.[1]
+  assert.ok(discoverySpawner)
+  discoveryRegistry.register(
+    'discover',
+    discoverySpawner,
+    registrations.getHandler('discover'),
+  )
 
   migrateDatabase()
   const db = getDb()
@@ -162,8 +176,8 @@ test('discovers source runs and retries runtime failures through jobs', async ()
       { count: 1, requested: 0, uploaded: 0 },
     )
 
-    await runJobSpawners(spawners)
-    await runJobSpawners(spawners)
+    await runJobSpawners(discoveryRegistry)
+    await runJobSpawners(discoveryRegistry)
     assert.deepEqual(
       db
         .prepare(
@@ -173,12 +187,12 @@ test('discovers source runs and retries runtime failures through jobs', async ()
         .get(),
       { count: 1 },
     )
-    assert.equal(await runNextJob(handlers), true)
+    assert.equal(await runNextJob(discoveryRegistry), true)
     assert.equal(getLatestDiscoveryJob()?.state, 'complete')
 
     rmSync(sourceRoot, { recursive: true })
-    await runJobSpawners(spawners)
-    assert.equal(await runNextJob(handlers), true)
+    await runJobSpawners(discoveryRegistry)
+    assert.equal(await runNextJob(discoveryRegistry), true)
     const failedDiscovery = getLatestDiscoveryJob()
     assert.equal(failedDiscovery?.state, 'error')
     assert.match(
@@ -187,8 +201,8 @@ test('discovers source runs and retries runtime failures through jobs', async ()
     )
 
     mkdirSync(sourceRoot)
-    await runJobSpawners(spawners)
-    assert.equal(await runNextJob(handlers), true)
+    await runJobSpawners(discoveryRegistry)
+    assert.equal(await runNextJob(discoveryRegistry), true)
     assert.equal(getLatestDiscoveryJob()?.state, 'complete')
   } finally {
     db.close()

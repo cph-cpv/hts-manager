@@ -7,6 +7,8 @@ import test from 'node:test'
 test('creates the merged schema for a fresh database', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'htsm-fresh-'))
   process.env.HTSM_DB_PATH = join(directory, 'hts-manager.db')
+  process.env.HTSM_PIN = 'test'
+  process.env.HTSM_SESSION_SECRET = 'test-session-secret'
 
   const { getDb, migrateDatabase } = await import('../../src/db/db')
   const { claimJob, enqueueJob, updateJobState } = await import(
@@ -89,7 +91,7 @@ test('creates the merged schema for a fresh database', async () => {
           `INSERT INTO jobs (kind, payload, created_at)
            VALUES (?, ?, ?)`,
         )
-        .run('copy', '{}', '2026-01-02T00:00:00.000Z')
+        .run('copy-run', '{}', '2026-01-02T00:00:00.000Z')
         .lastInsertRowid,
     )
     const earlierJobId = Number(
@@ -102,13 +104,13 @@ test('creates the merged schema for a fresh database', async () => {
         .lastInsertRowid,
     )
 
-    const earlierJob = claimJob(['discover', 'copy'])!
+    const earlierJob = claimJob(['discover', 'copy-run'])!
     assert.equal(earlierJob.id, earlierJobId)
     assert.equal(earlierJob.state, 'running')
     assert.ok(earlierJob.started_at)
     updateJobState(earlierJob.id, 'complete')
 
-    const laterJob = claimJob(['discover', 'copy'])!
+    const laterJob = claimJob(['discover', 'copy-run'])!
     assert.equal(laterJob.id, laterJobId)
     updateJobState(laterJob.id, 'complete')
 
@@ -164,7 +166,7 @@ test('creates the merged schema for a fresh database', async () => {
       `INSERT INTO jobs
          (kind, target_type, target_id, payload, created_at)
        VALUES (?, ?, ?, ?, ?)`,
-    ).run('copy', 'run', 42, '{}', 'now')
+    ).run('copy-run', 'run', 42, '{}', 'now')
     assert.deepEqual(
       db
         .prepare(
@@ -173,11 +175,11 @@ test('creates the merged schema for a fresh database', async () => {
             WHERE target_type = ? AND target_id = ? AND kind = ?
               AND state = ?`,
         )
-        .get('run', 42, 'copy', 'waiting'),
+        .get('run', 42, 'copy-run', 'waiting'),
       {
         target_type: 'run',
         target_id: 42,
-        kind: 'copy',
+        kind: 'copy-run',
         state: 'waiting',
       },
     )
@@ -185,14 +187,14 @@ test('creates the merged schema for a fresh database', async () => {
       `INSERT INTO jobs
          (kind, target_type, target_id, payload, created_at)
        VALUES (?, ?, ?, ?, ?)`,
-    ).run('copy', 'run', 42, '{}', 'later')
+    ).run('copy-run', 'run', 42, '{}', 'later')
     assert.deepEqual(
       db
         .prepare(
           `SELECT COUNT(*) AS count FROM jobs
             WHERE target_type = ? AND target_id = ? AND kind = ?`,
         )
-        .get('run', 42, 'copy'),
+        .get('run', 42, 'copy-run'),
       { count: 2 },
     )
 

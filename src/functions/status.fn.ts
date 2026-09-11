@@ -15,8 +15,7 @@ export const getStatus = createServerFn({ method: 'GET' })
   .handler(async (): Promise<StatusSnapshot> => buildStatus())
 
 /**
- * Kick off a manual scan. Returns whether a scan was started or one was already
- * running (the scanner ignores overlapping requests).
+ * Queue a manual scan, unless one is already waiting or no scan path is set.
  */
 export const requestScan = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])

@@ -6,8 +6,34 @@ import test from 'node:test'
 import { ZodError } from 'zod'
 import { readConfig } from '../../src/server/config'
 
+const auth = {
+  HTSM_PIN: 'test',
+  HTSM_SESSION_SECRET: 'test-session-secret',
+}
+
+function readTestConfig(env: NodeJS.ProcessEnv = {}) {
+  return readConfig({ ...auth, ...env })
+}
+
+test('requires the PIN and session secret', () => {
+  for (const name of ['HTSM_PIN', 'HTSM_SESSION_SECRET'] as const) {
+    for (const value of [undefined, '', '   ']) {
+      assert.throws(
+        () => readConfig({ ...auth, [name]: value }),
+        (error) =>
+          error instanceof ZodError &&
+          error.issues.some(
+            (issue) =>
+              issue.path.join('.') === name &&
+              issue.message === `${name} is required`,
+          ),
+      )
+    }
+  }
+})
+
 test('uses the source path to enable managed transfer', () => {
-  assert.deepEqual(readConfig({}).transfer, {
+  assert.deepEqual(readTestConfig().transfer, {
     enabled: false,
     sourcePath: null,
     destinationPath: null,
@@ -22,7 +48,7 @@ test('uses the source path to enable managed transfer', () => {
 
   try {
     assert.deepEqual(
-      readConfig({
+      readTestConfig({
         HTSM_TRANSFER_SOURCE_PATH: sourcePath,
         HTSM_SCAN_PATH: destinationPath,
       }).transfer,
@@ -34,7 +60,7 @@ test('uses the source path to enable managed transfer', () => {
       },
     )
     assert.equal(
-      readConfig({
+      readTestConfig({
         HTSM_TRANSFER_SOURCE_PATH: sourcePath,
         HTSM_SCAN_PATH: destinationPath,
         HTSM_TRANSFER_REMOVE_AFTER_DAYS: '0',
@@ -47,11 +73,11 @@ test('uses the source path to enable managed transfer', () => {
 })
 
 test('normalizes omitted removal retention to null', () => {
-  assert.equal(readConfig({}).transfer.removeAfterDays, null)
+  assert.equal(readTestConfig().transfer.removeAfterDays, null)
 })
 
 test('enables FASTQ symlink reconciliation with an absolute destination', () => {
-  assert.deepEqual(readConfig({}).fastqLinks, {
+  assert.deepEqual(readTestConfig().fastqLinks, {
     enabled: false,
     sourcePath: null,
     destinationPath: null,
@@ -64,7 +90,7 @@ test('enables FASTQ symlink reconciliation with an absolute destination', () => 
 
   try {
     assert.deepEqual(
-      readConfig({
+      readTestConfig({
         HTSM_SCAN_PATH: sourcePath,
         HTSM_FASTQ_SYMLINK_PATH: destinationPath,
       }).fastqLinks,
@@ -86,12 +112,12 @@ test('rejects invalid FASTQ symlink source and destination combinations', () => 
 
   try {
     assert.throws(
-      () => readConfig({ HTSM_FASTQ_SYMLINK_PATH: '/mnt/raw/fastq' }),
+      () => readTestConfig({ HTSM_FASTQ_SYMLINK_PATH: '/mnt/raw/fastq' }),
       /HTSM_SCAN_PATH is required when HTSM_FASTQ_SYMLINK_PATH is set/,
     )
     assert.throws(
       () =>
-        readConfig({
+        readTestConfig({
           HTSM_SCAN_PATH: sourcePath,
           HTSM_FASTQ_SYMLINK_PATH: 'relative/fastq',
         }),
@@ -99,7 +125,7 @@ test('rejects invalid FASTQ symlink source and destination combinations', () => 
     )
     assert.throws(
       () =>
-        readConfig({
+        readTestConfig({
           HTSM_SCAN_PATH: sourcePath,
           HTSM_FASTQ_SYMLINK_PATH: join(sourcePath, 'fastq'),
         }),
@@ -113,7 +139,7 @@ test('rejects invalid FASTQ symlink source and destination combinations', () => 
 test('rejects invalid source-removal retention values', () => {
   for (const value of ['-1', '1.5', 'not-a-number']) {
     assert.throws(
-      () => readConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: value }),
+      () => readTestConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: value }),
       /HTSM_TRANSFER_REMOVE_AFTER_DAYS/,
     )
   }
@@ -121,7 +147,7 @@ test('rejects invalid source-removal retention values', () => {
 
 test('reports cross-field transfer errors through Zod', () => {
   assert.throws(
-    () => readConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: '7' }),
+    () => readTestConfig({ HTSM_TRANSFER_REMOVE_AFTER_DAYS: '7' }),
     (error) =>
       error instanceof ZodError &&
       error.issues.some(

@@ -58,6 +58,8 @@ test('uploads the source file as the complete raw request body', async () => {
     process.env.VT_UPLOAD_USER_HANDLE = 'alice'
     process.env.VT_UPLOAD_API_KEY = 'secret'
     process.env.VT_UPLOAD_FILE_TYPE = 'reads'
+    process.env.HTSM_PIN = 'test'
+    process.env.HTSM_SESSION_SECRET = 'test-session-secret'
 
     const { postFile } = await import('../../src/server/uploader')
     const row: FileRow = {

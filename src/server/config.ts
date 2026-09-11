@@ -11,6 +11,13 @@ const optionalString = z.preprocess(
   z.string().min(1).optional(),
 )
 
+function requiredString(name: string) {
+  return z.preprocess(
+    emptyStringToUndefined,
+    z.string({ error: `${name} is required` }).min(1),
+  )
+}
+
 function booleanFromEnv(defaultValue: boolean) {
   return z.preprocess(
     emptyStringToUndefined,
@@ -27,8 +34,8 @@ const optionalNonnegativeInteger = z.preprocess(
 
 const environmentSchema = z
   .object({
-    HTSM_PIN: optionalString,
-    HTSM_SESSION_SECRET: optionalString,
+    HTSM_PIN: requiredString('HTSM_PIN'),
+    HTSM_SESSION_SECRET: requiredString('HTSM_SESSION_SECRET'),
     HTSM_SECURE: booleanFromEnv(true),
     HTSM_DB_PATH: z.preprocess(
       emptyStringToUndefined,
@@ -256,10 +263,7 @@ export function getAuthConfig(): {
   sessionSecret: string
   secure: boolean
 } {
-  const { pin, sessionSecret, secure } = getConfig().auth
-  if (!pin) throw new Error('HTSM_PIN is not set')
-  if (!sessionSecret) throw new Error('HTSM_SESSION_SECRET is not set')
-  return { pin, sessionSecret, secure }
+  return getConfig().auth
 }
 
 export function getUploadConfig(): {

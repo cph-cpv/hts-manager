@@ -15,6 +15,7 @@ RUN pnpm build
 
 # Production image — Nitro bundles externalized native modules into .output/
 FROM node:24-alpine AS runner
+RUN apk add --no-cache rsync
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/.output ./.output

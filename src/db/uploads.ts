@@ -30,14 +30,16 @@ export function getUploadCounts(): UploadCounts {
 
 /**
  * Queue a file for upload (button press): mark it requested + `queued` and clear
- * any prior error. No-op for already-uploaded rows. Returns true if a row changed.
+ * any prior error. Previously uploaded rows retain their success history while a
+ * new attempt runs. No-op while already queued/uploading. Returns whether a row
+ * changed.
  */
 export function requestUpload(id: number): boolean {
   const info = getDb()
     .prepare(
       `UPDATE files
           SET upload_requested = 1, upload_status = 'queued', upload_error = NULL
-        WHERE id = ? AND uploaded = 0`,
+        WHERE id = ? AND upload_status NOT IN ('queued', 'uploading')`,
     )
     .run(id)
   return info.changes > 0
@@ -63,7 +65,8 @@ export function requestUploadForRun(runId: number): number {
  * Claim the next file for the serial uploader. An interrupted `uploading` row
  * (from a previous process that died mid-flight) wins, since Virtool has no
  * resumable upload and it must be re-POSTed whole; otherwise the oldest
- * requested-but-unfinished row (`queued` or retryable `error`) is taken.
+ * requested row (`queued` or retryable `error`) is taken. Eligibility is based
+ * on the current status so a previously successful file can be uploaded again.
  * Returns `undefined` when there is nothing to do.
  */
 export function claimNext(): FileRow | undefined {
@@ -82,7 +85,7 @@ export function claimNext(): FileRow | undefined {
   return db
     .prepare(
       `SELECT * FROM files
-        WHERE upload_requested = 1 AND uploaded = 0
+        WHERE upload_requested = 1
           AND upload_status IN ('queued', 'error')
         ORDER BY first_seen_at ASC, id ASC
         LIMIT 1`,

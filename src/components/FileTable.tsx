@@ -31,6 +31,13 @@ type FileSortKey =
 
 type SortState = { key: FileSortKey; dir: 'asc' | 'desc' }
 
+type UploadActionPresentation = {
+  label: string
+  variant: 'default' | 'outline' | 'secondary'
+  disabled: boolean
+  showIcon: boolean
+}
+
 function sortFiles(files: FileWithRun[], key: FileSortKey, dir: 'asc' | 'desc'): FileWithRun[] {
   return [...files].sort((a, b) => {
     const av = a[key] ?? null
@@ -76,6 +83,48 @@ function SortableHead({
   )
 }
 
+function getUploadActionPresentation(
+  status: FileRow['upload_status'],
+): UploadActionPresentation {
+  switch (status) {
+    case 'queued':
+      return {
+        label: 'Queued',
+        variant: 'secondary',
+        disabled: true,
+        showIcon: false,
+      }
+    case 'uploading':
+      return {
+        label: 'Uploading',
+        variant: 'secondary',
+        disabled: true,
+        showIcon: false,
+      }
+    case 'uploaded':
+      return {
+        label: 'Re-upload',
+        variant: 'outline',
+        disabled: false,
+        showIcon: true,
+      }
+    case 'error':
+      return {
+        label: 'Retry',
+        variant: 'outline',
+        disabled: false,
+        showIcon: true,
+      }
+    case 'idle':
+      return {
+        label: 'Upload',
+        variant: 'default',
+        disabled: false,
+        showIcon: true,
+      }
+  }
+}
+
 /** The upload action shown per row, keyed off the row's lifecycle state. */
 function UploadAction({
   file,
@@ -86,23 +135,24 @@ function UploadAction({
   onUpload: (id: number) => void
   pending: boolean
 }) {
-  // Already done, or mid-flight in the queue — no action to offer.
-  if (file.uploaded || file.upload_status === 'queued' || file.upload_status === 'uploading') {
-    return null
-  }
+  const presentation = getUploadActionPresentation(file.upload_status)
 
-  const isRetry = file.upload_status === 'error'
   return (
     <Button
       type="button"
       size="sm"
-      variant={isRetry ? 'outline' : 'default'}
+      variant={presentation.variant}
+      className="w-28"
       onClick={() => onUpload(file.id)}
-      disabled={pending}
-      title={isRetry ? file.upload_error ?? 'Upload failed — retry' : undefined}
+      disabled={pending || presentation.disabled}
+      title={
+        file.upload_status === 'error'
+          ? file.upload_error ?? 'Upload failed — retry'
+          : undefined
+      }
     >
-      <UploadIcon />
-      {isRetry ? 'Retry' : 'Upload'}
+      {presentation.showIcon ? <UploadIcon /> : null}
+      {presentation.label}
     </Button>
   )
 }

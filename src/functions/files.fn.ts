@@ -92,8 +92,9 @@ export const requestRunUpload = createServerFn({ method: 'POST' })
 const requestUploadInput = z.object({ id: z.number().int().positive() })
 
 /**
- * Queue a file for upload. Returns whether a row changed (false if it was already
- * uploaded). The startup plugin runs the uploader that drains the queue.
+ * Queue or re-queue a file for upload. Returns whether a row changed (false if it
+ * is already queued/uploading or does not exist). The startup plugin runs the
+ * uploader that drains the queue.
  */
 export const requestUpload = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])

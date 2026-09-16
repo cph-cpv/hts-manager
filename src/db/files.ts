@@ -129,7 +129,7 @@ export function getAggregateCounts(): AggregateCounts {
       `SELECT
          COUNT(*) AS total,
          COALESCE(SUM(uploaded = 1), 0) AS uploaded,
-         COALESCE(SUM(upload_requested = 1 AND uploaded = 0), 0) AS queued,
+         COALESCE(SUM(upload_status = 'queued'), 0) AS queued,
          COALESCE(SUM(missing = 1), 0) AS missing,
          COALESCE(SUM(upload_status = 'error'), 0) AS errors
        FROM files`,

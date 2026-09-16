@@ -32,6 +32,20 @@ test('requires the PIN and session secret', () => {
   }
 })
 
+test('uses the direct Virtool upload endpoint and supported upload types', () => {
+  assert.equal(
+    readTestConfig().upload.url,
+    'https://preview.virtool.ca/api/v1/uploads',
+  )
+  for (const type of ['reference', 'reads', 'subtraction']) {
+    assert.equal(readTestConfig({ VT_UPLOAD_FILE_TYPE: type }).upload.type, type)
+  }
+  assert.throws(
+    () => readTestConfig({ VT_UPLOAD_FILE_TYPE: 'unknown' }),
+    /VT_UPLOAD_FILE_TYPE/,
+  )
+})
+
 test('uses the source path to enable managed transfer', () => {
   assert.deepEqual(readTestConfig().transfer, {
     enabled: false,

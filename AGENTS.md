@@ -31,12 +31,19 @@ There is no lint or test script configured currently — rely on `pnpm typecheck
   it.
 - Use verb-focused function names that describe what the function does. For
   example, prefer `getRunPaths` over `runPaths`.
+- Before implementing a common helper, check the relevant `utils.ts` files for
+  existing shared functionality that can be reused.
+- Put generally reusable functions in the appropriate `utils.ts` file when
+  other parts of the codebase are likely to need the same behavior.
 
 ## Production Code and Tests
 
 - Design core production functions around the inputs and behavior production
   actually needs. Do not add optional parameters or dependency objects solely
   to make tests easier to write.
+- Keep functions in `src/db/` focused on direct database operations. Put
+  externally consumed workflows in `src/functions/`, where they can compose
+  database operations with validation and other application behavior.
 - Keep test seams at appropriate boundaries (for example, module boundaries,
   integration tests, or focused adapters) instead of exposing test-only
   injection hooks in core production APIs.

@@ -19,6 +19,7 @@ export type UploadStatus =
 export type FileRow = {
   id: number
   run_id: number | null
+  analysis_id: number | null
   path: string
   name: string
   size: number
@@ -157,21 +158,34 @@ export function getFilesForRun(runId: number): FileWithRun[] {
 export function insertIfNew(file: DerivedRecord): boolean {
   const now = nowIso()
   const runId = upsertRun(file)
+  return insertFileRowIfNew(file, runId, null, now)
+}
+
+/** Shared insertion primitive for the full and analysis-scoped indexers. */
+export function insertFileRowIfNew(
+  file: DerivedRecord,
+  runId: number,
+  analysisId: number | null,
+  scannedAt: string,
+): boolean {
   const info = getDb()
     .prepare(
       `INSERT OR IGNORE INTO files
-         (run_id, path, name, size, lane, first_seen_at, last_scanned_at)
+         (run_id, analysis_id, path, name, size, lane,
+          first_seen_at, last_scanned_at)
        VALUES
-         (@run_id, @path, @name, @size, @lane, @first_seen_at, @last_scanned_at)`,
+         (@run_id, @analysis_id, @path, @name, @size, @lane,
+          @first_seen_at, @last_scanned_at)`,
     )
     .run({
       run_id: runId,
+      analysis_id: analysisId,
       path: file.path,
       name: file.name,
       size: file.size,
       lane: file.lane,
-      first_seen_at: now,
-      last_scanned_at: now,
+      first_seen_at: scannedAt,
+      last_scanned_at: scannedAt,
     })
   return info.changes > 0
 }

@@ -105,7 +105,8 @@ when it has an exact, root-level regular file named `CopyComplete.txt`; other
 completion metadata and nested markers do not qualify. Ready runs are copied
 automatically into `HTSM_SCAN_PATH`, preserving their original folder names and
 directory trees except the root `Analysis/` folder. Completed analysis trees are
-copied separately and a scan then indexes their FASTQ files for upload.
+copied separately and indexed directly, so their FASTQs become uploadable
+without waiting for a global scan.
 
 Source run folders are retained. `HTSM_TRANSFER_REMOVE_AFTER_DAYS` reserves
 retention configuration for the later source-removal implementation; copying
@@ -118,9 +119,11 @@ enabled. Source removal is not implemented.
 
 Copying runs serially in the background using **rsync**, which is included in
 the Docker image. Install rsync on the host when running outside Docker.
-Base-run copies and run-scoped analysis reconciliations use separate `copy-run`
-and `copy-analysis` jobs. Temporary filesystem/NFS failures and rsync transfer
-failures retry on the next polling pass; rsync's partial-transfer errors can
+Base-run copies and per-analysis transfers use separate `copy-run` and
+`copy-analysis` jobs. Each analysis job targets one durable analysis row, so a
+failure does not prevent sibling analyses from progressing. Temporary
+filesystem/NFS failures and rsync transfer failures retry on the next polling
+pass; rsync's partial-transfer errors can
 also indicate issues such as permissions, so repeated failures require
 inspecting the error message. A process restart marks interrupted job attempts
 as failed, then queues fresh work. If the prior attempt had already published
@@ -128,16 +131,39 @@ its base-run directory, the new job verifies that directory against the source
 and records the run as transferred. Otherwise, it discards the
 application-owned staging directory and starts the entire copy again.
 
-Runs are the transfer and job target. For each transferred run with pending
-analysis output, one `copy-analysis` job attempts every ready immediate
-`<run>/Analysis/<analysis>/` directory. An exact, regular `report.html` at an
-analysis root is the sole readiness indicator, with no stability delay. The
-analysis job spawner repeats this check, so analyses that arrive later are
-copied by a later job. A published destination analysis directory records
-completion; it is not synchronized again if its source changes.
+Run discovery also records every immediate, non-hidden
+`<run>/Analysis/<analysis>/` directory. An exact, regular `report.html` at the
+analysis root is the sole completion indicator. Completed analyses become
+eligible after their parent base run is transferred. Existing destinations are
+verified before acceptance, and interrupted work resumes from durable state.
+
+Runs and analyses have separate backing state machines:
+
+```text
+source run: running → run_complete → transferred → source_deleted
+                               ↘ blocked → run_complete
+manual run:  manually_copied
+
+analysis: running → analysis_complete → transferred → indexed
+                              ↘ blocked → analysis_complete
+                                            ↑
+                              transferred → blocked
+
+destination analysis discovered by scan: indexed
+                                  conflict: blocked
+```
+
+`source_deleted` and blocked-state recovery are represented for future work;
+this release does not delete sources or expose managed-transfer recovery
+controls. The scan job indexes newly discovered destination analyses directly;
+empty analysis directories are ignored until FASTQs appear, and indexed
+analyses do not regress when individual files become missing. The UI derives
+the operator statuses **Running**, **Transferring**, **Ready**, and **Blocked**
+from durable state plus waiting/running jobs. A run with at least one indexed
+analysis remains Ready while later analyses transfer or need attention.
 
 Reserved `.htsm-copy-<run-id>.partial` and
-`.htsm-analysis-<run-id>-<analysis>.partial`
+`.htsm-analysis-<analysis-id>.partial`
 directories under `HTSM_SCAN_PATH` hold unfinished copies. Both file scanning
 and FASTQ symlink reconciliation ignore these directories. Successful copies
 are verified and published by renaming the whole staging directory. The
@@ -145,27 +171,25 @@ application refuses publication when the destination already exists. Staging
 and the final destination must be on the same filesystem; cross-mount
 publication fails without a copying fallback. An existing base-run folder is
 accepted only when its inventory matches the source (excluding `Analysis/`);
-otherwise it is a conflict. An existing analysis directory is treated as
-already published; the parent `Analysis/` folder may exist.
+otherwise it is a conflict. An existing analysis directory is accepted only
+after its inventory matches the source; the parent `Analysis/` folder may exist.
 
 Destination conflicts, verification failures, and unsupported source entries
-(including symbolic links) put the base-run transfer in `Error` and stop its
+(including symbolic links) put the base-run transfer in `Blocked` and stop its
 automatic attempts. An analysis failure does not change the base run's status
-or block sibling analyses from being copied. The run-scoped job records an
-error after attempting every ready analysis, and unpublished analyses retry in
-a fresh job. Analysis verification mismatches retry from scratch, since
-`report.html` can precede the final writes. Recovery controls for base-run
-errors are planned in CPH-73. Rediscovery and restarting do not reset errored
-runs.
+or block sibling analyses from being copied. Permanent analysis conflicts,
+invalid ownership, and completed analyses with no FASTQs block that analysis;
+transient copy, NFS, and database failures leave it eligible for a later
+attempt. Rediscovery and restarting do not reset blocked entities.
 
 Verification compares relative paths, entry types, and file sizes, not file
 contents. Same-size corruption is not detected; checksum verification is
 deferred to source removal. The base-run inventory excludes `Analysis/`, so
-ongoing analyses cannot invalidate its verification. An analysis job that
-publishes at least one new analysis requests a scan job. Existing waiting scan
-requests are reused, and a failure to queue the scan is logged without changing
-the analysis job result; scheduled scans still provide eventual indexing. Run
-only one hts-manager server process against a database.
+ongoing analyses cannot invalidate its verification. Analysis publication
+indexes regular `.fastq.gz` and `.fq.gz` files in one transaction, attaching
+them to both their run and analysis while preserving existing upload history.
+The full scheduled scanner remains responsible for manual runs and missing-file
+reconciliation. Run only one hts-manager server process against a database.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
@@ -204,6 +228,14 @@ decompressed, so scanning is fast.
 - Top-level directories that don't match the run-folder pattern are **skipped
   wholesale**, as are files not under a recognized run folder — keep the tree
   conforming. Such files are *not lost*, just not indexed.
+- Within each recognized run, every non-hidden immediate directory at
+  `Analysis/<analysis>/` that contains a regular `.fastq.gz` or `.fq.gz` file is
+  recorded and indexed as an analysis. FASTQs are found recursively below the
+  analysis directory and linked to both the run and analysis; this scan-path
+  discovery does not require a `report.html` marker. The generic recursive walk
+  skips the entire top-level `Analysis` subtree, so these files cannot fall back
+  to run-only ownership. FASTQs elsewhere in the run remain discoverable with
+  run ownership only.
 - mtime is intentionally ignored: this data has been copied/reorganized, so
   neither filesystem nor gzip-header mtime reflects the actual run date.
 

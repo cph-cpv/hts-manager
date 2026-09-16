@@ -12,15 +12,16 @@ import {
   searchFiles,
 } from '../db/files'
 import {
-  getRunById,
-  listRuns as listRunsQuery,
+  getRunState,
+  listRunStates,
 } from '../db/runs'
 import {
   requestUpload as requestUploadRow,
   requestUploadForRun as requestUploadForRunRows,
 } from '../db/uploads'
 import type { FileWithRun } from '../db/files'
-import type { RunSummary, RunWithTransferActivity } from '../db/runs'
+import type { RunState, RunSummary } from '../db/runs'
+import { listAnalysesByRun, type AnalysisSummary } from '../db/analyses'
 
 const listInput = z
   .object({
@@ -32,7 +33,7 @@ const listInput = z
   .optional()
 
 /** A page of files plus the total count matching the filter (for pagination). */
-export interface ListFilesResult {
+export type ListFilesResult = {
   files: FileWithRun[]
   total: number
 }
@@ -52,13 +53,14 @@ export const listFiles = createServerFn({ method: 'GET' })
 /** All runs ordered newest-first with file counts. */
 export const listRuns = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
-  .handler(async (): Promise<RunSummary[]> => listRunsQuery())
+  .handler(async (): Promise<RunSummary[]> => listRunStates())
 
 const runInput = z.object({ runId: z.number().int().positive() })
 
 /** A single run plus its files, or `run: null` when the id is unknown. */
-export interface GetRunResult {
-  run: RunWithTransferActivity | null
+export type GetRunResult = {
+  run: RunState | null
+  analyses: AnalysisSummary[]
   files: FileWithRun[]
 }
 
@@ -67,9 +69,13 @@ export const getRun = createServerFn({ method: 'GET' })
   .middleware([authMiddleware])
   .validator((data: unknown) => runInput.parse(data))
   .handler(async ({ data }): Promise<GetRunResult> => {
-    const run = getRunById(data.runId)
-    if (!run) return { run: null, files: [] }
-    return { run, files: getFilesForRun(data.runId) }
+    const run = getRunState(data.runId)
+    if (!run) return { run: null, analyses: [], files: [] }
+    return {
+      run,
+      analyses: listAnalysesByRun(data.runId),
+      files: getFilesForRun(data.runId),
+    }
   })
 
 /**

@@ -12,8 +12,9 @@ import { Button } from '~/components/ui/button'
 import { FileTable } from '~/components/FileTable'
 import type { ColumnVisibility } from '~/components/ColumnToggle'
 import { statusQueryKey } from '~/components/TopBar'
-import { RunTransferStatusBadge } from '~/components/RunTransferStatus'
+import { WorkflowStatusBadge } from '~/components/WorkflowStatusBadge'
 import { formatDate, formatTime, humanFileSize } from '~/lib/format'
+import { getRunStatusPresentation } from '~/lib/run-status'
 import type { FileWithRun } from '~/db/files'
 
 export const Route = createFileRoute('/runs/$runId')({
@@ -95,6 +96,7 @@ function RunDetail() {
   const result = runQuery.data
   const run = result?.run ?? null
   const files = result?.files ?? []
+  const analyses = result?.analyses ?? []
 
   if (runQuery.isPending) {
     return (
@@ -117,6 +119,7 @@ function RunDetail() {
   }
 
   const pending = pendingUploads(files)
+  const { displayStatus, message } = getRunStatusPresentation(run)
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-6">
@@ -126,11 +129,13 @@ function RunDetail() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-semibold">{run.run_folder}</h1>
-            <RunTransferStatusBadge
-              status={run.transfer_status}
-              activity={run.transfer_activity}
-            />
+            <WorkflowStatusBadge status={displayStatus} />
           </div>
+          {(message || (displayStatus === 'Blocked' && run.last_blocking_reason)) && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {message ?? run.last_blocking_reason}
+            </p>
+          )}
           <p className="mt-1 text-sm text-muted-foreground">
             {files.length} file{files.length === 1 ? '' : 's'} ·{' '}
             {humanFileSize(totalSize(files))}
@@ -160,6 +165,39 @@ function RunDetail() {
           value={run.last_scanned_at ? formatTime(run.last_scanned_at) : 'Never'}
         />
       </dl>
+
+      {analyses.length > 0 && (
+        <div className="mt-6 overflow-hidden rounded-md border">
+          <table className="w-full text-sm">
+            <thead className="border-b bg-muted/50 text-left">
+              <tr>
+                <th className="px-4 py-3 font-medium">Analysis</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 text-right font-medium">FASTQs</th>
+                <th className="px-4 py-3 font-medium">Attention</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analyses.map((analysis) => (
+                <tr key={analysis.id} className="border-b last:border-b-0">
+                  <td className="px-4 py-3 font-medium">{analysis.analysis_folder}</td>
+                  <td className="px-4 py-3">
+                    <WorkflowStatusBadge status={analysis.display_status} />
+                  </td>
+                  <td className="px-4 py-3 text-right text-muted-foreground">
+                    {analysis.indexed_file_count}
+                  </td>
+                  <td className="max-w-sm px-4 py-3 text-muted-foreground">
+                    {analysis.status === 'blocked'
+                      ? analysis.last_blocking_reason ?? 'Needs operator attention'
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="mt-6">
         <FileTable

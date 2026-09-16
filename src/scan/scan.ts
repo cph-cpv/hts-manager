@@ -1,19 +1,20 @@
 /**
  * Pure, reusable scan core. Walks the run folders directly under a scan root,
  * indexes the FASTQ files inside them, and reconciles the `missing` flag. Used
- * by both the background scanner worker (`src/server/scanner.ts`) and the
+ * by both the background scanner worker (`src/server/jobs/scanner.ts`) and the
  * optional `scan` CLI — there is no scan logic anywhere else.
  *
- * The walk is deliberately layout-agnostic: a run folder's internal structure
- * varies by platform (NextSeq 500 puts FASTQ files under `fastq/`, others nest
- * them under `Data/Intensities/BaseCalls/`, MiSeq drops them at the run-folder
- * root), so once a top-level directory is recognised as a run folder we recurse
- * through all of it. See plan.md (step 4) for the full rationale.
+ * Analysis ownership is recognized below each immediate analysis directory.
+ * The generic fallback never enters the top-level `Analysis` subtree, so an
+ * analysis FASTQ cannot be indexed as a run-only file.
  */
 import { readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { deriveRecord, isFastqGz, parseRunFolder } from './parse'
 import { flagMissingExcept, getKnownPaths, insertIfNew } from '../db/files'
+import { indexScannedAnalysisFiles } from '../db/analyses'
+import { upsertScannedRun } from '../db/runs'
+import { collectAnalysisFastqs } from './analysis'
 
 /** Live progress reported during a scan (for the top-bar scanning indicator). */
 export interface ScanProgress {
@@ -27,7 +28,7 @@ export interface ScanProgress {
 export interface ScanResult {
   /** New rows inserted. */
   added: number
-  /** FASTQ files seen that were already indexed (left untouched). */
+  /** FASTQ files visited without inserting a new row. */
   skipped: number
   /** Rows under `root` flagged `missing` because their file was not seen. */
   missing: number
@@ -41,9 +42,13 @@ const PROGRESS_EVERY = 50
  *
  * Run folders are the direct children of `root` whose name matches the Illumina
  * run-folder pattern (see {@link parseRunFolder}); top-level entries that don't
- * match — and any loose files directly under `root` — are skipped wholesale. New
- * files are inserted; already-known files are left untouched. After the walk,
- * rows under `root` whose file was not seen are flagged `missing`.
+ * match — and any loose files directly under `root` — are skipped wholesale.
+ * Immediate `<run>/Analysis/<analysis>` directories are handled first, and
+ * every FASTQ recursively below each directory receives an `analysis_id`.
+ * The recursive fallback indexes every FASTQ outside `Analysis` with run
+ * ownership only.
+ * After the walk, rows under `root` whose file was not seen are flagged
+ * `missing`.
  *
  * `onProgress` (if given) is invoked periodically during the walk and once more
  * when it finishes, so a caller can surface live progress.
@@ -59,6 +64,12 @@ export async function runScan(
   let skipped = 0
   let processed = 0
 
+  function reportProcessed(): void {
+    if (onProgress && processed % PROGRESS_EVERY === 0) {
+      onProgress({ processed, added })
+    }
+  }
+
   async function processFile(path: string, runFolder: string): Promise<void> {
     seenPaths.push(path)
     processed += 1
@@ -71,20 +82,51 @@ export async function runScan(
       else skipped += 1 // inserted concurrently between the check and now
     }
 
-    if (onProgress && processed % PROGRESS_EVERY === 0) {
-      onProgress({ processed, added })
+    reportProcessed()
+  }
+
+  async function readDirectoryIfPresent(dir: string) {
+    try {
+      return await readdir(dir, { withFileTypes: true })
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+      ) {
+        return []
+      }
+      throw error
     }
   }
 
-  // Recurse through a known run folder, collecting FASTQ files at any depth.
-  async function walk(dir: string, runFolder: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const full = join(dir, entry.name)
-      if (entry.isDirectory()) {
-        await walk(full, runFolder)
-      } else if (entry.isFile() && isFastqGz(entry.name)) {
-        await processFile(full, runFolder)
+  /** Index analysis FASTQs before the generic recursive walk. */
+  async function indexAnalyses(
+    runPath: string,
+    runFolder: string,
+    runMetadata: NonNullable<ReturnType<typeof parseRunFolder>>,
+  ): Promise<void> {
+    const analysisRoot = join(runPath, 'Analysis')
+    const entries = await readDirectoryIfPresent(analysisRoot)
+    const analysisEntries = entries.filter(
+      (entry) => !entry.name.startsWith('.') && entry.isDirectory(),
+    )
+    if (analysisEntries.length === 0) return
+
+    const run = upsertScannedRun({ run_folder: runFolder, ...runMetadata })
+    for (const entry of analysisEntries) {
+      const records = await collectAnalysisFastqs(
+        join(analysisRoot, entry.name),
+        runFolder,
+      )
+      const result = indexScannedAnalysisFiles(run.id, entry.name, records)
+
+      added += result.added
+      skipped += result.skipped
+      for (const record of records) {
+        seenPaths.push(record.path)
+        processed += 1
+        reportProcessed()
       }
     }
   }
@@ -92,8 +134,25 @@ export async function runScan(
   const topEntries = await readdir(absRoot, { withFileTypes: true })
   for (const entry of topEntries) {
     if (!entry.isDirectory()) continue
-    if (!parseRunFolder(entry.name)) continue // not a run folder → skip subtree
-    await walk(join(absRoot, entry.name), entry.name)
+    const runMetadata = parseRunFolder(entry.name)
+    if (!runMetadata) continue // not a run folder → skip subtree
+    const runPath = join(absRoot, entry.name)
+    await indexAnalyses(runPath, entry.name, runMetadata)
+
+    async function walkRemaining(dir: string, isRunRoot = false): Promise<void> {
+      const entries = await readdir(dir, { withFileTypes: true })
+      for (const child of entries) {
+        const full = join(dir, child.name)
+        if (child.isDirectory()) {
+          if (isRunRoot && child.name === 'Analysis') continue
+          await walkRemaining(full)
+        } else if (child.isFile() && isFastqGz(child.name)) {
+          await processFile(full, entry.name)
+        }
+      }
+    }
+
+    await walkRemaining(runPath, true)
   }
 
   const missing = flagMissingExcept(absRoot, seenPaths)

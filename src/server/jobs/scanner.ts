@@ -4,9 +4,9 @@
 import {
   isScanJobWaiting,
   queueRequestedScanJob,
-} from '../db/scan-jobs'
-import { runScan, type ScanResult } from '../scan/scan'
-import { getConfig } from './config'
+} from '../../db/scan-jobs'
+import { runScan, type ScanResult } from '../../scan/scan'
+import { getConfig } from '../config'
 
 /** Snapshot of the scanner, surfaced through `getStatus`. */
 export type ScanState = {

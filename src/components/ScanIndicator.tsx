@@ -2,7 +2,7 @@ import { RefreshCwIcon } from 'lucide-react'
 import { Button } from '~/components/ui/button'
 import { Spinner } from '~/components/ui/spinner'
 import { formatTime } from '~/lib/format'
-import type { ScanState } from '~/server/scanner'
+import type { ScanState } from '~/server/jobs/scanner'
 
 /**
  * Scan status + "Scan now" button. Shows queued and live progress states,

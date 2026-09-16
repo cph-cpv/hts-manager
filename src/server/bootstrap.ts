@@ -6,7 +6,7 @@
  */
 import type { Config } from './config'
 import { startFastqLinkWorker } from './fastq-link-worker'
-import { startJobWorkers } from './job-worker'
+import { startJobWorkers } from './jobs/job-worker'
 import { startUploader } from './uploader'
 
 declare global {

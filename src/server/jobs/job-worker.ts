@@ -5,17 +5,17 @@ import {
   type JobRow,
   failInterruptedJobs,
   updateJobState,
-} from '../db/jobs'
+} from '../../db/jobs'
 import {
   queueDiscoveryJob,
-  queueReadyRunCopies,
-} from '../db/transfer'
-import { queueScheduledScanJob } from '../db/scan-jobs'
-import { getConfig, type Config } from './config'
+  queueCompletedRunCopies,
+} from '../../db/transfer'
+import { queueScheduledScanJob } from '../../db/scan-jobs'
+import { getConfig, type Config } from '../config'
 import { discoverSourceRuns } from './discovery'
 import {
   handleCopyAnalysisJob,
-  queueReadyRunAnalysisCopies,
+  queueEligibleAnalysisCopyJobs,
 } from './copy-analysis'
 import { handleCopyRunJob } from './copy-run'
 import { handleScanJob } from './scanner'
@@ -88,12 +88,12 @@ export function createJobRegistry(config: Config): JobRegistry {
   if (enabled && sourcePath) {
     registry.register(
       'copy-run',
-      queueReadyRunCopies,
+      queueCompletedRunCopies,
       (job) => handleCopyRunJob(job, config.transfer),
     )
     registry.register(
       'copy-analysis',
-      () => queueReadyRunAnalysisCopies(config.transfer),
+      queueEligibleAnalysisCopyJobs,
       (job) => handleCopyAnalysisJob(job, config.transfer),
     )
     registry.register(

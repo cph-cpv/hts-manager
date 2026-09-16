@@ -21,12 +21,13 @@ test('creates the merged schema for a fresh database', async () => {
     const objects = db
       .prepare(
         `SELECT name, type FROM sqlite_master
-          WHERE name IN ('runs', 'jobs', 'transfer_jobs', 'transfer_sources',
+          WHERE name IN ('runs', 'analyses', 'jobs', 'transfer_jobs', 'transfer_sources',
                          'transfer_source_status')
           ORDER BY name`,
       )
       .all()
     assert.deepEqual(objects, [
+      { name: 'analyses', type: 'table' },
       { name: 'jobs', type: 'table' },
       { name: 'runs', type: 'table' },
     ])
@@ -37,9 +38,10 @@ test('creates the merged schema for a fresh database', async () => {
         notnull: number
       }>
     ).map(({ name, notnull }) => ({ name, notnull }))
+    assert.ok(!runColumns.some((column) => column.name === 'management_mode'))
     assert.ok(
       runColumns.some(
-        (column) => column.name === 'transfer_status' && column.notnull === 1,
+        (column) => column.name === 'status' && column.notnull === 1,
       ),
     )
     assert.ok(

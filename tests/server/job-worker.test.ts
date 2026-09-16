@@ -23,7 +23,7 @@ test('spawns and serially runs every supported job kind', async () => {
     runJobSpawners,
     runNextJob,
     startJobWorkers,
-  } = await import('../../src/server/job-worker')
+  } = await import('../../src/server/jobs/job-worker')
 
   migrateDatabase()
   const db = getDb()

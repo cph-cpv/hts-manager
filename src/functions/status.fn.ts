@@ -6,7 +6,7 @@
  */
 import { createServerFn } from '@tanstack/react-start'
 import { authMiddleware } from '../server/auth-middleware'
-import { requestScan as requestScanWorker } from '../server/scanner'
+import { requestScan as requestScanWorker } from '../server/jobs/scanner'
 import { getStatus as buildStatus, type StatusSnapshot } from '../server/status'
 
 /** Return the combined status snapshot for the top-bar indicators. */

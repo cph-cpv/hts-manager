@@ -1,9 +1,9 @@
 /** Copy-run job handling and durable run transfer transitions. */
 import { join } from 'node:path'
-import type { JobRow } from '../db/jobs'
-import { getRunById } from '../db/runs'
-import { markRunCopyError, markRunTransferred } from '../db/transfer'
-import type { TransferConfig } from './config'
+import type { JobRow } from '../../db/jobs'
+import { getRunRowById } from '../../db/runs'
+import { markRunBlocked, markRunTransferred } from '../../db/transfer'
+import type { TransferConfig } from '../config'
 import {
   CopyConflictError,
   copyDirectory,
@@ -12,13 +12,13 @@ import {
   isRetryableCopyError,
   requireDirectory,
   verifyPublishedDirectory,
-} from './copy'
+} from '../copy'
 
 /** Copy and verify a ready base run without its root Analysis directory. */
 async function copyRun(runId: number, config: TransferConfig): Promise<void> {
-  const run = getRunById(runId)
-  if (!run || run.transfer_status !== 'ready') {
-    throw new CopyConflictError(`Run ${runId} is not a managed ready run`)
+  const run = getRunRowById(runId)
+  if (!run || run.status !== 'run_complete') {
+    throw new CopyConflictError(`Run ${runId} is not complete`)
   }
 
   const { source, root, destination } = getRunPaths(run, config)
@@ -50,9 +50,9 @@ export async function handleCopyRunJob(
   } catch (error) {
     if (
       !isRetryableCopyError(error) &&
-      getRunById(job.target_id)?.transfer_status === 'ready'
+      getRunRowById(job.target_id)?.status === 'run_complete'
     ) {
-      markRunCopyError(job.target_id)
+      markRunBlocked(job.target_id)
     }
     throw error
   }

@@ -1,21 +1,20 @@
-import type { DerivedRecord } from '../scan/parse'
+import type { DerivedRecord, ParsedRunFolder } from '../scan/parse'
 import { getDb } from './db'
 import { nowIso } from './utils'
 
-/** Durable transfer milestone for a run; temporary activity lives on jobs. */
-export type RunTransferStatus =
-  | 'manual'
-  | 'detected'
-  | 'ready'
+export type RunStatus =
+  | 'manually_copied'
+  | 'sequencing'
+  | 'processing'
   | 'transferred'
-  | 'removed'
+  | 'source_deleted'
+  | 'blocked'
 
-/** Row shape of the `runs` table. */
 export type RunRow = {
   id: number
   run_folder: string
   source_path: string | null
-  transfer_status: RunTransferStatus
+  status: RunStatus
   run_date: string
   instrument: string
   run_number: string
@@ -24,108 +23,100 @@ export type RunRow = {
   last_scanned_at: string | null
 }
 
-export type TransferActivity = 'copying' | 'removing' | null
-
-export type RunWithTransferActivity = RunRow & {
-  transfer_activity: TransferActivity
+/** The complete current workflow state for a run, including related work. */
+export type RunState = RunRow & {
+  analysis_count: number
+  indexed_analysis_count: number
+  blocked_analysis_count: number
+  active_transfer_count: number
+  last_blocking_reason: string | null
 }
 
-/** A run with the number of associated files. */
-export type RunSummary = RunWithTransferActivity & {
-  file_count: number
+export type RunSummary = RunState & { file_count: number }
+
+type RunAggregateRow = RunState & {
+  file_count?: number
 }
 
-/**
- * Insert or look up the run record for a derived file, returning its id.
- * The `runs` table deduplicates by `run_folder`; subsequent files in the same
- * run folder get the same id. `last_scanned_at` is refreshed on every call so
- * it reflects the most-recent scan that visited this run.
- */
-export function upsertRun(file: DerivedRecord): number {
+const RUN_AGGREGATES_SQL = `
+  (SELECT COUNT(*) FROM analyses a WHERE a.run_id = r.id) AS analysis_count,
+  (SELECT COUNT(*) FROM analyses a
+    WHERE a.run_id = r.id AND a.status = 'indexed') AS indexed_analysis_count,
+  (SELECT COUNT(*) FROM analyses a
+    WHERE a.run_id = r.id AND a.status = 'blocked') AS blocked_analysis_count,
+  (
+    SELECT COUNT(*) FROM jobs j
+     WHERE j.state IN ('waiting', 'running')
+       AND (
+         (j.target_type = 'run' AND j.target_id = r.id AND j.kind = 'copy-run')
+         OR
+         (j.target_type = 'analysis' AND j.kind = 'copy-analysis'
+           AND j.target_id IN (SELECT id FROM analyses WHERE run_id = r.id))
+       )
+  ) AS active_transfer_count,
+  (
+    SELECT j.error_message FROM jobs j
+     WHERE j.state = 'error'
+       AND (
+         (j.target_type = 'run' AND j.target_id = r.id)
+         OR
+         (j.target_type = 'analysis'
+           AND j.target_id IN (SELECT id FROM analyses WHERE run_id = r.id))
+       )
+     ORDER BY j.id DESC LIMIT 1
+  ) AS last_blocking_reason
+`
+
+type ScannedRun = ParsedRunFolder & { run_folder: string }
+
+/** Insert or look up a manually copied run from its parsed folder metadata. */
+export function upsertScannedRun(run: ScannedRun): RunRow {
   const db = getDb()
   const now = nowIso()
   db.prepare(
     `INSERT OR IGNORE INTO runs
-       (run_folder, run_date, instrument, run_number, flowcell,
-        first_seen_at, last_scanned_at)
+       (run_folder, source_path, status, run_date, instrument,
+        run_number, flowcell, first_seen_at, last_scanned_at)
      VALUES
-       (@run_folder, @run_date, @instrument, @run_number, @flowcell,
-        @first_seen_at, @last_scanned_at)`,
-  ).run({
-    run_folder: file.run_folder,
-    run_date: file.run_date,
-    instrument: file.instrument,
-    run_number: file.run_number,
-    flowcell: file.flowcell,
-    first_seen_at: now,
-    last_scanned_at: now,
-  })
-  return (
-    db.prepare('SELECT id FROM runs WHERE run_folder = ?').get(file.run_folder) as {
-      id: number
-    }
-  ).id
+       (@run_folder, NULL, 'manually_copied', @run_date, @instrument,
+        @run_number, @flowcell, @first_seen_at, @last_scanned_at)`,
+  ).run({ ...run, first_seen_at: now, last_scanned_at: now })
+  return db.prepare('SELECT * FROM runs WHERE run_folder = ?').get(
+    run.run_folder,
+  ) as RunRow
 }
 
-/** List all runs, newest run date first. */
-export function listRuns(): RunSummary[] {
-  return getDb()
-    .prepare(
-      `SELECT r.*,
-              COUNT(f.id) AS file_count,
-              CASE
-                  WHEN EXISTS (
-                    SELECT 1 FROM jobs
-                     WHERE target_type = 'run'
-                       AND target_id = r.id
-                       AND kind = 'remove'
-                       AND state = 'running'
-                  ) THEN 'removing'
-                  WHEN EXISTS (
-                    SELECT 1 FROM jobs
-                     WHERE target_type = 'run'
-                       AND target_id = r.id
-                       AND kind = 'copy'
-                       AND state = 'running'
-                  ) THEN 'copying'
-                  ELSE NULL
-                END AS transfer_activity
-         FROM runs r
-         LEFT JOIN files f ON f.run_id = r.id
-        GROUP BY r.id
-        ORDER BY r.run_date DESC, r.run_folder ASC`,
-    )
-    .all() as RunSummary[]
+/** Insert or look up the run owning a freshly derived scanner file. */
+export function upsertRun(file: DerivedRecord): number {
+  return upsertScannedRun(file).id
 }
 
-/** Fetch a single run by id, or undefined if not found. */
-export function getRunById(
-  id: number,
-): RunWithTransferActivity | undefined {
-  return getDb()
-    .prepare(
-      `SELECT run.*,
-              CASE
-                WHEN EXISTS (
-                  SELECT 1 FROM jobs
-                   WHERE target_type = 'run'
-                     AND target_id = run.id
-                     AND kind = 'remove'
-                     AND state = 'running'
-                ) THEN 'removing'
-                WHEN EXISTS (
-                  SELECT 1 FROM jobs
-                   WHERE target_type = 'run'
-                     AND target_id = run.id
-                     AND kind = 'copy'
-                     AND state = 'running'
-                ) THEN 'copying'
-                ELSE NULL
-              END AS transfer_activity
-         FROM runs AS run
-        WHERE id = ?`,
-    )
-    .get(id) as RunWithTransferActivity | undefined
+/** List complete workflow state for every run, newest first. */
+export function listRunStates(): RunSummary[] {
+  const rows = getDb().prepare(`
+    SELECT r.*,
+           (SELECT COUNT(*) FROM files f WHERE f.run_id = r.id) AS file_count,
+           ${RUN_AGGREGATES_SQL}
+      FROM runs r
+     ORDER BY r.run_date DESC, r.run_folder ASC
+  `).all() as RunAggregateRow[]
+  return rows as RunSummary[]
+}
+
+/** Get the complete current workflow state for one run. */
+export function getRunState(id: number): RunState | undefined {
+  const row = getDb().prepare(`
+    SELECT r.*, ${RUN_AGGREGATES_SQL}
+      FROM runs r
+     WHERE r.id = ?
+  `).get(id) as RunAggregateRow | undefined
+  return row
+}
+
+export function getRunRowById(id: number): RunRow | undefined {
+  return getDb().prepare('SELECT * FROM runs WHERE id = ?').get(id) as
+    | RunRow
+    | undefined
 }
 
 /** Fetch a run by its authoritative Illumina folder name. */

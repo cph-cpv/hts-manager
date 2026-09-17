@@ -27,6 +27,7 @@ function row(path: string, name: string, size: number, id = 1): FileRow {
   return {
     id,
     run_id: 1,
+    analysis_id: null,
     path,
     name,
     size,
@@ -159,6 +160,8 @@ test('uploads direct blocks and cancels failed reservations', async () => {
     process.env.VT_UPLOAD_API_KEY = 'secret'
     process.env.VT_UPLOAD_FILE_TYPE = 'reads'
     process.env.HTSM_DB_PATH = join(directory, 'hts-manager.db')
+    process.env.HTSM_PIN = 'test'
+    process.env.HTSM_SESSION_SECRET = 'test-session-secret'
 
     const { getDb, migrateDatabase } = await import('../../src/db/db')
     const { postFile, uploadOne } = await import('../../src/server/uploader')
@@ -236,8 +239,10 @@ test('uploads direct blocks and cancels failed reservations', async () => {
     const db = getDb()
     db.prepare(
       `INSERT INTO runs
-        (id, run_folder, run_date, instrument, run_number, flowcell, first_seen_at, last_scanned_at)
-       VALUES (1, 'run', '2026-09-02', 'instrument', '1', 'flowcell', 'now', 'now')`,
+        (id, run_folder, status, run_date, instrument, run_number, flowcell,
+         first_seen_at, last_scanned_at)
+       VALUES (1, 'run', 'manually_copied', '2026-09-02', 'instrument', '1',
+               'flowcell', 'now', 'now')`,
     ).run()
     db.prepare(
       `INSERT INTO files

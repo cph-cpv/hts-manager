@@ -7,6 +7,8 @@ import test from 'node:test'
 test('supports per-file re-uploads without losing prior success', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'htsm-uploads-'))
   process.env.HTSM_DB_PATH = join(directory, 'hts-manager.db')
+  process.env.HTSM_PIN = 'test'
+  process.env.HTSM_SESSION_SECRET = 'test-session-secret'
 
   const { getDb, migrateDatabase } = await import('../../src/db/db')
   const { getAggregateCounts } = await import('../../src/db/files')
@@ -25,9 +27,9 @@ test('supports per-file re-uploads without losing prior success', async () => {
   try {
     db.prepare(
       `INSERT INTO runs
-         (id, run_folder, run_date, instrument, run_number, flowcell,
+         (id, run_folder, status, run_date, instrument, run_number, flowcell,
           first_seen_at, last_scanned_at)
-       VALUES (1, '260901_NS123_0001_FLOW', '2026-09-01', 'NS123',
+       VALUES (1, '260901_NS123_0001_FLOW', 'manually_copied', '2026-09-01', 'NS123',
                '0001', 'FLOW', '2026-09-01T00:00:00.000Z',
                '2026-09-01T00:00:00.000Z')`,
     ).run()

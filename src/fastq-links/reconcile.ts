@@ -129,6 +129,8 @@ async function discoverDesiredTree(source: string): Promise<DesiredTree> {
 
   for (const runEntry of runEntries) {
     if (!runEntry.isDirectory()) continue
+    if (/^\.htsm-copy-\d+\.partial$/.test(runEntry.name) ||
+      (runEntry.name.startsWith('.htsm-analysis-') && runEntry.name.endsWith('.partial'))) continue
 
     const runName = runEntry.name
     const runPath = join(source, runName)

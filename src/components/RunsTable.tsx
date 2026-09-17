@@ -9,29 +9,40 @@ import {
   TableHeader,
   TableRow,
 } from '~/components/ui/table'
-import { RunTransferStatusBadge } from '~/components/RunTransferStatus'
+import { WorkflowStatusBadge } from '~/components/WorkflowStatusBadge'
 import { formatDate } from '~/lib/format'
+import { getRunStatusPresentation } from '~/lib/run-status'
 import type { RunSummary } from '~/db/runs'
 
 type RunSortKey =
-  | 'run_folder'
-  | 'run_date'
-  | 'instrument'
-  | 'flowcell'
-  | 'transfer_status'
-  | 'file_count'
+  | keyof Pick<
+      RunSummary,
+      'run_folder' | 'run_date' | 'instrument' | 'flowcell' | 'file_count'
+    >
+  | 'display_status'
 
 type SortState = { key: RunSortKey; dir: 'asc' | 'desc' }
 
+type RunSortValue = string | number | null
+
+function getRunSortValue(run: RunSummary, key: RunSortKey): RunSortValue {
+  if (key === 'display_status') {
+    return getRunStatusPresentation(run).displayStatus
+  }
+
+  return run[key]
+}
+
 function sortRuns(runs: RunSummary[], key: RunSortKey, dir: 'asc' | 'desc'): RunSummary[] {
-  return [...runs].sort((a, b) => {
-    const av = a[key] ?? null
-    const bv = b[key] ?? null
-    if (av === null && bv === null) return 0
-    if (av === null) return 1
-    if (bv === null) return -1
-    const cmp = av < bv ? -1 : av > bv ? 1 : 0
-    return dir === 'asc' ? cmp : -cmp
+  return [...runs].sort((leftRun, rightRun) => {
+    const leftValue = getRunSortValue(leftRun, key)
+    const rightValue = getRunSortValue(rightRun, key)
+    if (leftValue === null && rightValue === null) return 0
+    if (leftValue === null) return 1
+    if (rightValue === null) return -1
+    const comparison =
+      leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0
+    return dir === 'asc' ? comparison : -comparison
   })
 }
 
@@ -99,8 +110,8 @@ export function RunsTable({ runs }: { runs: RunSummary[] }) {
             <SortableHead label="Instrument" sortKey="instrument" current={sort} onSort={onSort} />
             <SortableHead label="Flowcell" sortKey="flowcell" current={sort} onSort={onSort} />
             <SortableHead
-              label="Transfer"
-              sortKey="transfer_status"
+              label="Status"
+              sortKey="display_status"
               current={sort}
               onSort={onSort}
             />
@@ -115,36 +126,43 @@ export function RunsTable({ runs }: { runs: RunSummary[] }) {
         </TableHeader>
         <TableBody>
           {sorted.map((run) => (
-            <TableRow key={run.id}>
-              <TableCell className="font-medium">
-                <Link
-                  to="/runs/$runId"
-                  params={{ runId: String(run.id) }}
-                  className="hover:underline"
-                >
-                  {run.run_folder}
-                </Link>
-              </TableCell>
-              <TableCell>{formatDate(run.run_date)}</TableCell>
-              <TableCell className="text-muted-foreground">
-                {run.instrument ?? '—'}
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {run.flowcell}
-              </TableCell>
-              <TableCell>
-                <RunTransferStatusBadge
-                  status={run.transfer_status}
-                  activity={run.transfer_activity}
-                />
-              </TableCell>
-              <TableCell className="text-right text-muted-foreground">
-                {run.file_count}
-              </TableCell>
-            </TableRow>
+            <RunRow key={run.id} run={run} />
           ))}
         </TableBody>
       </Table>
     </div>
+  )
+}
+
+function RunRow({ run }: { run: RunSummary }) {
+  const { displayStatus, message } = getRunStatusPresentation(run)
+  return (
+    <TableRow>
+      <TableCell className="font-medium">
+        <Link
+          to="/runs/$runId"
+          params={{ runId: String(run.id) }}
+          className="hover:underline"
+        >
+          {run.run_folder}
+        </Link>
+      </TableCell>
+      <TableCell>{formatDate(run.run_date)}</TableCell>
+      <TableCell className="text-muted-foreground">
+        {run.instrument ?? '—'}
+      </TableCell>
+      <TableCell className="text-muted-foreground">{run.flowcell}</TableCell>
+      <TableCell>
+        <div className="flex flex-col items-start gap-1">
+          <WorkflowStatusBadge status={displayStatus} />
+          {message && (
+            <span className="text-xs text-muted-foreground">{message}</span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="text-right text-muted-foreground">
+        {run.file_count}
+      </TableCell>
+    </TableRow>
   )
 }

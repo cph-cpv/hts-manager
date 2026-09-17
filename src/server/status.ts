@@ -5,7 +5,7 @@
  * single `getStatus` poll. See plan.md (step 7).
  */
 import { getAggregateCounts, type AggregateCounts } from '../db/files'
-import { getScanState, type ScanState } from './scanner'
+import { getScanState, type ScanState } from './jobs/scanner'
 import { getUploadState, type UploadState } from './uploader'
 
 /** Everything the top bar needs in one poll. */

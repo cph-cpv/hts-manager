@@ -2,11 +2,11 @@ import { RefreshCwIcon } from 'lucide-react'
 import { Button } from '~/components/ui/button'
 import { Spinner } from '~/components/ui/spinner'
 import { formatTime } from '~/lib/format'
-import type { ScanState } from '~/server/scanner'
+import type { ScanState } from '~/server/jobs/scanner'
 
 /**
- * Scan status + "Scan now" button. Shows live progress while a scan runs,
- * otherwise the last-scan time (or an error). The button is disabled mid-scan.
+ * Scan status + "Scan now" button. Shows queued and live progress states,
+ * otherwise the last-scan time (or an error).
  */
 export function ScanIndicator({
   scan,
@@ -26,6 +26,11 @@ export function ScanIndicator({
           <Spinner className="size-4" />
           Scanning… ({scan.processed} indexed, {scan.added} new)
         </span>
+      ) : scan.queued ? (
+        <span className="flex items-center gap-2 text-muted-foreground">
+          <Spinner className="size-4" />
+          Scan queued…
+        </span>
       ) : scan.error ? (
         <span className="text-destructive">Scan failed: {scan.error}</span>
       ) : (
@@ -38,7 +43,7 @@ export function ScanIndicator({
         variant="outline"
         size="sm"
         onClick={onScanNow}
-        disabled={scan.scanning || scanPending}
+        disabled={scan.scanning || scan.queued || scanPending}
       >
         <RefreshCwIcon />
         Scan now

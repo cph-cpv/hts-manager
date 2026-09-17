@@ -4,7 +4,12 @@ import { nowIso } from './utils'
 
 export type JobState = 'waiting' | 'running' | 'complete' | 'error'
 
-export type JobKind = 'discover' | 'copy' | 'remove'
+export type JobKind =
+  | 'scan'
+  | 'discover'
+  | 'copy-run'
+  | 'copy-analysis'
+  | 'remove'
 
 export type JobRow = {
   id: number
@@ -38,7 +43,8 @@ export const JOB_STATE_TRANSITIONS = {
   error: [],
 } as const satisfies Record<JobState, readonly JobState[]>
 
-function getJob(id: number): JobRow | undefined {
+/** Return a persisted job by ID, if it still exists. */
+export function getJob(id: number): JobRow | undefined {
   return getDb().prepare('SELECT * FROM jobs WHERE id = ?').get(id) as
     | JobRow
     | undefined
@@ -174,5 +180,19 @@ export function updateJobState(
     }
 
     return getJob(id)!
+  })()
+}
+
+/** Single-process startup only: record work abandoned by the previous process. */
+export function failInterruptedJobs(): void {
+  const db = getDb()
+  db.transaction(() => {
+    const jobs = db
+      .prepare("SELECT id FROM jobs WHERE state = 'running'")
+      .all() as Array<Pick<JobRow, 'id'>>
+
+    for (const job of jobs) {
+      updateJobState(job.id, 'error', 'Job interrupted by server restart')
+    }
   })()
 }

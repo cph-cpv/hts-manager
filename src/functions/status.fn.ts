@@ -6,7 +6,7 @@
  */
 import { createServerFn } from '@tanstack/react-start'
 import { authMiddleware } from '../server/auth-middleware'
-import { requestScan as requestScanWorker } from '../server/scanner'
+import { requestScan as requestScanWorker } from '../server/jobs/scanner'
 import { getStatus as buildStatus, type StatusSnapshot } from '../server/status'
 
 /** Return the combined status snapshot for the top-bar indicators. */
@@ -15,8 +15,7 @@ export const getStatus = createServerFn({ method: 'GET' })
   .handler(async (): Promise<StatusSnapshot> => buildStatus())
 
 /**
- * Kick off a manual scan. Returns whether a scan was started or one was already
- * running (the scanner ignores overlapping requests).
+ * Queue a manual scan, unless one is already waiting or no scan path is set.
  */
 export const requestScan = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])

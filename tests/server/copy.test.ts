@@ -94,7 +94,7 @@ test('copies analyses independently and indexes each publication directly', asyn
       assert.equal(existsSync(join(paths.destination, 'keep')), true)
     })
 
-    await t.test('leaves a run complete after a retryable source failure', async () => {
+    await t.test('leaves a run processing after a retryable source failure', async () => {
       const paths = makeSource([{ name: 'one' }])
       await discoverSourceRuns(sourceRoot)
       const run = getRunByFolder(paths.runName)!
@@ -102,7 +102,7 @@ test('copies analyses independently and indexes each publication directly', asyn
       const job = queueRunCopyJob(run.id)
       await runNextJob(runs)
       assert.equal(getJob(job.id)?.state, 'error')
-      assert.equal(getRunByFolder(paths.runName)?.status, 'run_complete')
+      assert.equal(getRunByFolder(paths.runName)?.status, 'processing')
       assert.equal(existsSync(paths.destination), false)
     })
 

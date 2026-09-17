@@ -17,7 +17,7 @@ import {
 /** Copy and verify a ready base run without its root Analysis directory. */
 async function copyRun(runId: number, config: TransferConfig): Promise<void> {
   const run = getRunRowById(runId)
-  if (!run || run.status !== 'run_complete') {
+  if (!run || run.status !== 'processing') {
     throw new CopyConflictError(`Run ${runId} is not complete`)
   }
 
@@ -50,7 +50,7 @@ export async function handleCopyRunJob(
   } catch (error) {
     if (
       !isRetryableCopyError(error) &&
-      getRunRowById(job.target_id)?.status === 'run_complete'
+      getRunRowById(job.target_id)?.status === 'processing'
     ) {
       markRunBlocked(job.target_id)
     }

@@ -4,8 +4,8 @@ import { nowIso } from './utils'
 
 export type RunStatus =
   | 'manually_copied'
-  | 'running'
-  | 'run_complete'
+  | 'sequencing'
+  | 'processing'
   | 'transferred'
   | 'source_deleted'
   | 'blocked'

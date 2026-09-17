@@ -13,15 +13,15 @@ export function WorkflowStatusBadge({ status }: { status: RunDisplayStatus }) {
       )
     case 'Blocked':
       return <Badge variant="destructive">Blocked</Badge>
-    case 'Transferring':
+    case 'Processing':
       return (
         <Badge variant="secondary">
           <Spinner className="size-3" />
-          Transferring
+          Processing
         </Badge>
       )
-    case 'Running':
+    case 'Sequencing':
     default:
-      return <Badge variant="secondary">Running</Badge>
+      return <Badge variant="secondary">Sequencing</Badge>
   }
 }

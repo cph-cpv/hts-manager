@@ -12,11 +12,10 @@ export function getRunStatusPresentation(run: RunState): RunStatusPresentation {
     status: run.status,
     hasIndexedAnalysis: run.indexed_analysis_count > 0,
     hasBlockedAnalysis: run.blocked_analysis_count > 0,
-    hasActiveTransfer: run.active_transfer_count > 0,
   })
   const messages: string[] = []
   if (displayStatus === 'Ready' && run.active_transfer_count > 0) {
-    messages.push('Transferring another analysis')
+    messages.push('Processing another analysis')
   }
   if (displayStatus === 'Ready' && run.blocked_analysis_count > 0) {
     const count = run.blocked_analysis_count

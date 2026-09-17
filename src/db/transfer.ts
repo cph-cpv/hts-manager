@@ -7,9 +7,9 @@ import { nowIso } from './utils'
 
 export const RUN_STATUS_TRANSITIONS = {
   manually_copied: [],
-  running: ['run_complete'],
-  run_complete: ['transferred', 'blocked'],
-  blocked: ['run_complete'],
+  sequencing: ['processing'],
+  processing: ['transferred', 'blocked'],
+  blocked: ['processing'],
   transferred: ['source_deleted'],
   source_deleted: [],
 } as const satisfies Record<RunStatus, readonly RunStatus[]>
@@ -24,7 +24,7 @@ export function transitionRunStatus(id: number, nextStatus: RunStatus): void {
 }
 
 export function markRunComplete(id: number): void {
-  transitionRunStatus(id, 'run_complete')
+  transitionRunStatus(id, 'processing')
 }
 
 export function markRunTransferred(id: number): void {
@@ -40,7 +40,7 @@ export function markRunSourceDeleted(id: number): void {
 }
 
 export function recoverBlockedRun(id: number): void {
-  transitionRunStatus(id, 'run_complete')
+  transitionRunStatus(id, 'processing')
 }
 
 export type UpsertManagedRunInput = ParsedRunFolder & {
@@ -76,7 +76,7 @@ export function upsertManagedRun(input: UpsertManagedRunInput): RunRow {
         run_folder, source_path, status, run_date, instrument,
         run_number, flowcell, first_seen_at, last_scanned_at
       ) VALUES (
-        @run_folder, @source_path, 'running', @run_date, @instrument,
+        @run_folder, @source_path, 'sequencing', @run_date, @instrument,
         @run_number, @flowcell, @first_seen_at, NULL
       ) RETURNING *
     `).get({
@@ -116,8 +116,8 @@ export function queueRunCopyJob(runId: number): JobRow {
   const db = getDb()
   return db.transaction(() => {
     const run = requireSourceRun(runId)
-    if (run.status !== 'run_complete') {
-      throw new Error('copy-run jobs require a run_complete source run')
+    if (run.status !== 'processing') {
+      throw new Error('copy-run jobs require a processing source run')
     }
     const active = db.prepare(`
       SELECT * FROM jobs WHERE kind = 'copy-run' AND target_type = 'run'
@@ -131,7 +131,7 @@ export function queueRunCopyJob(runId: number): JobRow {
 export function listCopyEligibleRuns(): RunRow[] {
   return getDb().prepare(`
     SELECT * FROM runs
-     WHERE status = 'run_complete'
+     WHERE status = 'processing'
        AND source_path IS NOT NULL
        AND NOT EXISTS (
          SELECT 1 FROM jobs WHERE kind = 'copy-run' AND target_type = 'run'

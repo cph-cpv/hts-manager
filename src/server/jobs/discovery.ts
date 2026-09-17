@@ -75,7 +75,7 @@ export async function discoverSourceRuns(sourceRoot: string): Promise<DiscoveryS
     else summary.known += 1
 
     if (
-      run.status === 'running' &&
+      run.status === 'sequencing' &&
       await hasRegularMarker(join(sourcePath, 'CopyComplete.txt'))
     ) {
       markRunComplete(run.id)

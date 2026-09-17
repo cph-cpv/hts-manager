@@ -42,13 +42,13 @@ test('enforces independent run and analysis lifecycles and job eligibility', asy
       run_number: '0001',
       flowcell: 'FLOW',
     })
-    assert.equal(run.status, 'running')
+    assert.equal(run.status, 'sequencing')
     assert.throws(() => markRunTransferred(run.id), /cannot transition/)
     markRunComplete(run.id)
     markRunBlocked(run.id)
     recoverBlockedRun(run.id)
     markRunTransferred(run.id)
-    assert.throws(() => transitionRunStatus(run.id, 'run_complete'), /cannot transition/)
+    assert.throws(() => transitionRunStatus(run.id, 'processing'), /cannot transition/)
 
     const analysis = upsertSourceAnalysis(run.id, 'analysis-1')
     assert.equal(upsertSourceAnalysis(run.id, 'analysis-1').id, analysis.id)
@@ -58,7 +58,7 @@ test('enforces independent run and analysis lifecycles and job eligibility', asy
     assert.equal(queued.target_type, 'analysis')
     assert.equal(queueAnalysisCopyJob(analysis.id).id, queued.id)
     assert.equal(getRunState(run.id)?.active_transfer_count, 1)
-    assert.equal(listAnalysesByRun(run.id)[0]?.display_status, 'Transferring')
+    assert.equal(listAnalysesByRun(run.id)[0]?.display_status, 'Processing')
     const running = claimJob(['copy-analysis'])!
     updateJobState(running.id, 'error', 'destination conflict')
     markAnalysisBlocked(analysis.id)

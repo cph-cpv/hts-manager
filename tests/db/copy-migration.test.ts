@@ -45,8 +45,8 @@ test('migration 5 maps every legacy state and preserves related data', () => {
       'SELECT id, status, source_path FROM runs ORDER BY id',
     ).all(), [
       { id: 1, status: 'manually_copied', source_path: null },
-      { id: 2, status: 'running', source_path: '/s/2' },
-      { id: 3, status: 'run_complete', source_path: '/s/3' },
+      { id: 2, status: 'sequencing', source_path: '/s/2' },
+      { id: 3, status: 'processing', source_path: '/s/3' },
       { id: 4, status: 'transferred', source_path: '/s/4' },
       { id: 5, status: 'source_deleted', source_path: '/s/5' },
       { id: 6, status: 'blocked', source_path: '/s/6' },
@@ -65,7 +65,7 @@ test('migration 5 maps every legacy state and preserves related data', () => {
     assert.throws(() => db.prepare(`INSERT INTO runs (
       run_folder, source_path, status, run_date, instrument,
       run_number, flowcell, first_seen_at
-    ) VALUES ('bad',NULL,'running','now','','','','now')`).run(), /CHECK constraint/)
+    ) VALUES ('bad',NULL,'sequencing','now','','','','now')`).run(), /CHECK constraint/)
   } finally {
     db.close()
   }

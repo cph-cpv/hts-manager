@@ -35,7 +35,7 @@ test('discovery records analyses early and only accepts exact regular markers', 
       added: 1, known: 0, manual: 0, skipped: 0,
     })
     const run = getRunByFolder(name)!
-    assert.equal(run.status, 'running')
+    assert.equal(run.status, 'sequencing')
     assert.deepEqual(
       listAnalysesByRun(run.id).map(({ analysis_folder, status }) => ({ analysis_folder, status })),
       [
@@ -50,7 +50,7 @@ test('discovery records analyses early and only accepts exact regular markers', 
     writeFileSync(join(runPath, 'CopyComplete.txt'), 'done')
     writeFileSync(join(runPath, 'Analysis', 'unfinished', 'report.html'), 'done')
     await discoverSourceRuns(source)
-    assert.equal(getRunByFolder(name)?.status, 'run_complete')
+    assert.equal(getRunByFolder(name)?.status, 'processing')
     assert.equal(
       listAnalysesByRun(run.id).find((a) => a.analysis_folder === 'unfinished')?.status,
       'analysis_complete',

@@ -10,43 +10,43 @@ test('run display status follows operator-facing precedence', () => {
     status: 'manually_copied',
     hasIndexedAnalysis: false,
     hasBlockedAnalysis: false,
-    hasActiveTransfer: false,
   }), 'Ready')
   assert.equal(deriveRunDisplayStatus({
     status: 'transferred',
     hasIndexedAnalysis: true,
     hasBlockedAnalysis: true,
-    hasActiveTransfer: true,
   }), 'Ready')
   assert.equal(deriveRunDisplayStatus({
     status: 'blocked',
     hasIndexedAnalysis: false,
     hasBlockedAnalysis: false,
-    hasActiveTransfer: true,
   }), 'Blocked')
   assert.equal(deriveRunDisplayStatus({
     status: 'transferred',
     hasIndexedAnalysis: false,
     hasBlockedAnalysis: true,
-    hasActiveTransfer: true,
   }), 'Blocked')
   assert.equal(deriveRunDisplayStatus({
-    status: 'run_complete',
+    status: 'processing',
     hasIndexedAnalysis: false,
     hasBlockedAnalysis: false,
-    hasActiveTransfer: true,
-  }), 'Transferring')
+  }), 'Processing')
   assert.equal(deriveRunDisplayStatus({
-    status: 'running',
+    status: 'transferred',
     hasIndexedAnalysis: false,
     hasBlockedAnalysis: false,
-    hasActiveTransfer: false,
-  }), 'Running')
+  }), 'Processing')
+  assert.equal(deriveRunDisplayStatus({
+    status: 'sequencing',
+    hasIndexedAnalysis: false,
+    hasBlockedAnalysis: false,
+  }), 'Sequencing')
 })
 
-test('analysis display status follows indexed, blocked, activity precedence', () => {
-  assert.equal(deriveAnalysisDisplayStatus({ status: 'indexed', hasActiveTransfer: true }), 'Ready')
-  assert.equal(deriveAnalysisDisplayStatus({ status: 'blocked', hasActiveTransfer: true }), 'Blocked')
-  assert.equal(deriveAnalysisDisplayStatus({ status: 'analysis_complete', hasActiveTransfer: true }), 'Transferring')
-  assert.equal(deriveAnalysisDisplayStatus({ status: 'running', hasActiveTransfer: false }), 'Running')
+test('analysis display status collapses internal progress states', () => {
+  assert.equal(deriveAnalysisDisplayStatus({ status: 'indexed' }), 'Ready')
+  assert.equal(deriveAnalysisDisplayStatus({ status: 'blocked' }), 'Blocked')
+  assert.equal(deriveAnalysisDisplayStatus({ status: 'running' }), 'Processing')
+  assert.equal(deriveAnalysisDisplayStatus({ status: 'analysis_complete' }), 'Processing')
+  assert.equal(deriveAnalysisDisplayStatus({ status: 'transferred' }), 'Processing')
 })

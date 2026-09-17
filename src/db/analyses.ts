@@ -261,12 +261,6 @@ export function listAnalysesByRun(runId: number): AnalysisSummary[] {
     SELECT a.*,
            (SELECT COUNT(*) FROM files f
              WHERE f.analysis_id = a.id AND f.missing = 0) AS indexed_file_count,
-           EXISTS(
-             SELECT 1 FROM jobs j
-              WHERE j.kind = 'copy-analysis'
-                AND j.target_type = 'analysis' AND j.target_id = a.id
-                AND j.state IN ('waiting', 'running')
-           ) AS active,
            (SELECT j.error_message FROM jobs j
              WHERE j.target_type = 'analysis' AND j.target_id = a.id
                AND j.state = 'error'
@@ -275,14 +269,12 @@ export function listAnalysesByRun(runId: number): AnalysisSummary[] {
      ORDER BY a.analysis_folder COLLATE NOCASE, a.id
   `).all(runId) as Array<AnalysisRow & {
     indexed_file_count: number
-    active: number
     last_blocking_reason: string | null
   }>
-  return rows.map(({ active, ...row }) => ({
+  return rows.map((row) => ({
     ...row,
     display_status: deriveAnalysisDisplayStatus({
       status: row.status,
-      hasActiveTransfer: Boolean(active),
     }),
   }))
 }

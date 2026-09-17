@@ -15,7 +15,7 @@ export const addAnalysisLifecycle: Migration = {
         source_path      TEXT UNIQUE,
         status           TEXT NOT NULL CHECK (
                            status IN (
-                             'manually_copied', 'running', 'run_complete',
+                             'manually_copied', 'sequencing', 'processing',
                              'transferred', 'source_deleted', 'blocked'
                            )
                          ),
@@ -42,8 +42,8 @@ export const addAnalysisLifecycle: Migration = {
         source_path,
         CASE transfer_status
           WHEN 'manual' THEN 'manually_copied'
-          WHEN 'detected' THEN 'running'
-          WHEN 'ready' THEN 'run_complete'
+          WHEN 'detected' THEN 'sequencing'
+          WHEN 'ready' THEN 'processing'
           WHEN 'transferred' THEN 'transferred'
           WHEN 'removed' THEN 'source_deleted'
           WHEN 'error' THEN 'blocked'

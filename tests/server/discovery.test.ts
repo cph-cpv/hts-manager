@@ -20,15 +20,17 @@ test('discovery records analyses early and only accepts exact regular markers', 
   migrateDatabase()
   const db = getDb()
   try {
-    mkdirSync(join(runPath, 'Analysis', 'ready'), { recursive: true })
-    writeFileSync(join(runPath, 'Analysis', 'ready', 'report.html'), 'done')
-    mkdirSync(join(runPath, 'Analysis', 'unfinished'), { recursive: true })
-    mkdirSync(join(runPath, 'Analysis', 'nested', 'nested'), { recursive: true })
-    writeFileSync(join(runPath, 'Analysis', 'nested', 'nested', 'report.html'), 'no')
-    mkdirSync(join(runPath, 'Analysis', 'directory', 'report.html'), { recursive: true })
-    mkdirSync(join(runPath, 'Analysis', 'symlink'), { recursive: true })
+    mkdirSync(join(runPath, 'Analysis', 'ready', 'Data'), { recursive: true })
+    writeFileSync(join(runPath, 'Analysis', 'ready', 'Data', 'report.html'), 'done')
+    mkdirSync(join(runPath, 'Analysis', 'unfinished', 'Data'), { recursive: true })
+    mkdirSync(join(runPath, 'Analysis', 'nested', 'Data', 'nested'), { recursive: true })
+    writeFileSync(join(runPath, 'Analysis', 'nested', 'Data', 'nested', 'report.html'), 'no')
+    mkdirSync(join(runPath, 'Analysis', 'root-marker'), { recursive: true })
+    writeFileSync(join(runPath, 'Analysis', 'root-marker', 'report.html'), 'no')
+    mkdirSync(join(runPath, 'Analysis', 'directory', 'Data', 'report.html'), { recursive: true })
+    mkdirSync(join(runPath, 'Analysis', 'symlink', 'Data'), { recursive: true })
     writeFileSync(join(runPath, 'target'), 'no')
-    symlinkSync(join(runPath, 'target'), join(runPath, 'Analysis', 'symlink', 'report.html'))
+    symlinkSync(join(runPath, 'target'), join(runPath, 'Analysis', 'symlink', 'Data', 'report.html'))
     mkdirSync(join(runPath, 'Analysis', '.hidden'), { recursive: true })
 
     assert.deepEqual(await discoverSourceRuns(source), {
@@ -42,20 +44,21 @@ test('discovery records analyses early and only accepts exact regular markers', 
         { analysis_folder: 'directory', status: 'running' },
         { analysis_folder: 'nested', status: 'running' },
         { analysis_folder: 'ready', status: 'analysis_complete' },
+        { analysis_folder: 'root-marker', status: 'running' },
         { analysis_folder: 'symlink', status: 'running' },
         { analysis_folder: 'unfinished', status: 'running' },
       ],
     )
 
     writeFileSync(join(runPath, 'CopyComplete.txt'), 'done')
-    writeFileSync(join(runPath, 'Analysis', 'unfinished', 'report.html'), 'done')
+    writeFileSync(join(runPath, 'Analysis', 'unfinished', 'Data', 'report.html'), 'done')
     await discoverSourceRuns(source)
     assert.equal(getRunByFolder(name)?.status, 'processing')
     assert.equal(
       listAnalysesByRun(run.id).find((a) => a.analysis_folder === 'unfinished')?.status,
       'analysis_complete',
     )
-    rmSync(join(runPath, 'Analysis', 'unfinished', 'report.html'))
+    rmSync(join(runPath, 'Analysis', 'unfinished', 'Data', 'report.html'))
     await discoverSourceRuns(source)
     assert.equal(
       listAnalysesByRun(run.id).find((a) => a.analysis_folder === 'unfinished')?.status,

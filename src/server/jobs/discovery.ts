@@ -41,7 +41,7 @@ async function discoverAnalyses(run: RunRow): Promise<void> {
     const analysis = upsertSourceAnalysis(run.id, entry.name)
     if (
       analysis.status === 'running' &&
-      await hasRegularMarker(join(run.source_path, 'Analysis', entry.name, 'report.html'))
+      await hasRegularMarker(join(run.source_path, 'Analysis', entry.name, 'Data', 'report.html'))
     ) {
       markAnalysisComplete(analysis.id)
     }

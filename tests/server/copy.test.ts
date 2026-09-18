@@ -53,7 +53,7 @@ test('copies analyses independently and indexes each publication directly', asyn
     for (const spec of analysisSpecs) {
       const analysis = join(source, 'Analysis', spec.name)
       mkdirSync(join(analysis, 'Data', 'fastq'), { recursive: true })
-      writeFileSync(join(analysis, 'report.html'), 'done')
+      writeFileSync(join(analysis, 'Data', 'report.html'), 'done')
       if (spec.fastq !== false) {
         writeFileSync(join(analysis, 'Data', 'fastq', `${spec.name}_L001_R1.fastq.gz`), spec.name)
       }
